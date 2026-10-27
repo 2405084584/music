@@ -246,21 +246,26 @@ Visualizer 消费已解析的 `LyricData` / `Line` / `Word`，不负责解析 `.
 - `hanabiBeatFx.ts`：智能动感模式的两个效果。「随拍开花」按节拍表在夜空上半部每拍开一朵小烟花，小节第一拍提前升空、正好在拍上开大的，重音越强开得越大、没有节奏的小节不开；运行时把节拍表交给在画的场景，场景按拍的时刻把烟花放进那时所在的镜头（跟着上升、旋转）。「随拍推镜」把拍的包络套在整个场景层上（以画面中心推近、左右轻摆）。静态模式、仅显示歌词文字时都不放
 - 歌词字号由每个预设的文字区决定，通用字号设置只影响底部字幕
 
-### Konbini
+### Machi
 
-雨町（实验）：three.js 程序化生成的雨夜便利店街角微缩模型（约 12m×12m 底座，正交斜俯视），歌词是场景里的招牌。不挂共享背景（`background: false`），天空自己画。快速定位：
+町景（实验）：three.js 程序化生成的日式小镇微缩模型（约 12m×12m 底座，正交斜俯视），歌词是场景里的招牌、屏幕。设置里选场景（目前是便利店街角）、时间、天气，三项都可以“自动”。不挂共享背景（`background: false`），天空自己画。快速定位：
 
-- `konbini/VisualizerKonbini.tsx`：React 外壳 / 字幕；运行时用 `pixi/pixiRuntimeHost.ts` 的 `useVisualizerPixiHost` 托管（与渲染器无关），建一次，换歌、换主题、暂停、静态模式就地推给它；WebGL 上下文丢了换一个 epoch 重建
-- `konbini/createKonbiniRuntime.ts`：WebGLRenderer、自己的 RAF 循环（暂停时只在镜头动、颜色插值、换牌动画时出帧）、自动画质降级（DPR、倒影分辨率、阴影图、景深、光条、bloom，只降不升）、DEV 调试钩子 `window.__konbiniDebug`（`setView(方位角, 俯角, 缩放)`、`renderAt(歌曲秒, 氛围秒)`、`nextCar(氛围秒)`、`stats()`）
-- `konbini/geometry/`：分层函数和命名 Group 搭场景（`layout.ts` 尺寸表、`base.ts` 底座与路、`store.ts` 店身与三面广告塔、`interior.ts` 店内、`props.ts` 街边道具与按歌变的 `SongProps`）；`shapes.ts` 的 `bakeStatic` 建完后按材质合批，重复物用 InstancedMesh
-- `konbiniPalette.ts`：主题 → 调色板（纯函数）。雨夜的底子固定，主题色进店招三色条、灯箱字、LED、霓虹、贩卖机和商品，天空 / 店内光只偏一点色相；偏灰主题按 seed 选经典配色；背景亮的主题换白底灯箱。`konbiniMaterials.ts` 的 `KonbiniColorBlend` 换主题时插值过去
-- `konbiniSigns.ts` + `konbiniSignRaster.ts` + `konbiniBoardLayout.ts`：屋顶三面广告屏逐字点亮当前行（字的时间来自 `buildLineGraphemeTimeline`，关键词按字符范围着色；着色器里做成户外 LED 屏：像素格与子像素条（格子太小时淡掉防摩尔纹）、点亮边界对齐像素格、慢刷新带、面板玻璃反光，换行时信号切换——横带错位、色散、雪花点；最亮的通道压到 bloom 门槛附近，字不被晕开）、右面店招的 LED 点阵跑马灯（下一句 / 译文）、前面店招（主题图标 logo + 曲名当店名）、立柱灯箱、玻璃海报、窗内霓虹、门口 A 字立牌（AI 主题的主题名）。主题图标经 `../lucidePath2d.ts` 画成 Path2D（与花火拼贴共用）
-- `konbiniDirector.ts`：牌面在行与曲名卡之间切、段落开头开自动门（`../paragraphStructure.ts`）、副歌加亮、招牌闪烁日程、音频包络（纯函数）；`konbiniSeed.ts` 按 seed 变自行车、伞、风向、水洼
-- `konbiniClock.ts`：统一可暂停的氛围时钟（雨、涟漪、滴水、闪烁、车、旗、白气）；歌词、门、副歌与闪电读歌曲时间
-- `fx/`：`konbiniWeather.ts`（雨丝、水花、滴水，三个 draw call；落进灯光里的雨丝被照亮）、`konbiniWetGround.ts`（湿路面：水洼、涟漪、倒影取样）、`konbiniReflection.ts`（镜像正交镜头只画倒影图层到半分辨率贴图，店身在那里是全黑的遮挡）、`konbiniLightCones.ts`（路灯的光柱，一个 draw call）、`konbiniSteam.ts`（井盖与空调外机冒的白气）、`konbiniPost.ts` + `konbiniPostPasses.ts`（场景画进单独的 MSAA + 深度目标 → 氛围 pass：墨线、贴地薄雾与店门 / 路灯在雾里的散射、云与闪电 → 柔和 bloom → 横向镜头光条 → 镜头 pass：按深度的微缩景深、边缘色差、暗角、颗粒 → 输出）。画质降级依次关景深、光条、bloom
-- `actors/`：`konbiniSchedules.ts`（纯函数：车按氛围时间窗口出现、同时最多一辆；每段副歌开头一道闪电）、`konbiniTraffic.ts`（轻型车 / 出租车，前灯光斑，车灯进倒影）、`konbiniNobori.ts`（门口三面のぼり旗：曲名、主题图标与主题名、おでん，顶点着色器里随风飘）。车的材质带底座边缘的裁切面，从底座边上“开出来”；车下是软阴影，不重画阴影图。静态模式下街上没有车。场景里不放人物
-- 镜头 `konbiniCamera.ts`：缩放 1 框住整座底座，默认构图拉近到 `CAMERA.zoom`（1.4），目标点上移保住广告屏顶，裁掉的是下沿离镜头最近的路口角；OrbitControls，方位角限默认构图 ±75°、俯角 20°–70°、不平移，松手 8 秒缓回默认构图；预览里不接拖拽
-- 歌词字号由广告塔字面决定，通用字号设置只影响底部字幕
+- `machi/VisualizerMachi.tsx`：React 外壳 / 字幕；运行时用 `pixi/pixiRuntimeHost.ts` 的 `useVisualizerPixiHost` 托管（与渲染器无关），建一次，换歌、换主题、换设置、暂停、静态模式就地推给它；WebGL 上下文丢了换一个 epoch 重建
+- `machi/tuning.ts` + `types.ts` + `machiTuning.ts` + `MachiSettingsPanel.tsx`：tuning（`machi_tuning`：场景 / 时间 / 天气，都可以 `auto`；“自动”场景按 seed 选，`resolveMachiSceneId`），设置面板（场景用线稿小图，不放实时预览）与快捷控件的三个轮换胶囊
+- `machi/createMachiRuntime.ts`：引擎。WebGLRenderer、自己的 RAF 循环（暂停时只在镜头动、颜色插值、换牌动画时出帧）、就地换场景（拆旧场景、建新场景，上下文和后处理留着）、自动画质降级（DPR、倒影分辨率、阴影图、景深、光条、bloom，只降不升）、DEV 调试钩子 `window.__machiDebug`（`setView(方位角, 俯角, 缩放)`、`renderAt(歌曲秒, 氛围秒)`、`nextCar(氛围秒)`、`setTuning({ scene, timeOfDay, weather })`、`stats()`）
+- `machi/engine/`：三个场景共用的部分
+  - `palette.ts`：主题 → 调色板（纯函数）。夜的底子固定，主题色进品牌三色条、屏幕字、LED、霓虹、贩卖机和商品，天空 / 暖光只偏一点色相；偏灰主题按 seed 选经典配色；背景亮的主题换白底屏幕。场景自己的颜色由场景的 `resolveArt` 给，放进 `art`。`materials.ts` 的 `MachiColorBlend` 换主题时插值过去；`MachiMaterials` 引擎一份、每个场景一份（场景拆掉时一起销毁），自发光件的规格由场景 `defineGlows` 登记
+  - `lyricScreen.ts`：逐字点亮当前行的 LED 屏（字的时间来自 `buildLineGraphemeTimeline`，关键词按字符范围着色；像素格与子像素条（格子太小时淡掉防摩尔纹）、点亮边界对齐像素格、慢刷新带、面板玻璃反光，换行时信号切换——横带错位、色散、雪花点；最亮的通道压到 bloom 门槛附近，字不被晕开）。`ledStrip.ts`：LED 点阵跑马灯。`signRaster.ts` + `boardLayout.ts`：字体、图标（经 `../lucidePath2d.ts` 画成 Path2D，与花火拼贴共用）、缩字折行、字面排版
+  - `director.ts`：牌面在行与曲名卡之间切、跑马灯写什么、副歌权重、副歌开头的闪电、招牌闪烁日程、音频包络（纯函数）
+  - `clock.ts`：统一可暂停的氛围时钟（雨、涟漪、滴水、闪烁、车、旗、白气）；歌词、副歌与闪电读歌曲时间
+  - `camera.ts`：缩放 1 框住场景给的构图点，默认构图拉近到场景给的缩放，目标点上移保住画面上沿的招牌，裁掉的是下沿离镜头最近的底座角；OrbitControls，方位角限默认视角 ±75°、俯角 20°–70°、不平移，松手 8 秒缓回默认构图；预览里不接拖拽
+  - `skyLights.ts`（半球光 + 投影的月光，阴影图按需重画）、`sky.ts`（竖向渐变天空）
+  - `fx/`：`weather.ts`（雨丝、水花、滴水，三个 draw call；屋顶、滴水点、受光点由场景给）、`ground.ts`（湿路面：水洼、涟漪、倒影取样）、`reflection.ts`（镜像正交镜头只画倒影图层到半分辨率贴图）、`lightCones.ts`（场景给的光柱，一个 draw call）、`steam.ts`（白气）、`post.ts` + `postPasses.ts`（场景画进单独的 MSAA + 深度目标 → 氛围 pass：墨线、贴地薄雾与雾里的两处灯、云与闪电 → 柔和 bloom → 横向镜头光条 → 镜头 pass：按深度的微缩景深、边缘色差、暗角、颗粒 → 输出）
+  - `actors/`：`schedules.ts`（纯函数：车按氛围时间窗口出现、同时最多一辆，车道由场景给）、`traffic.ts`（轻型车 / 出租车，前灯光斑，车灯进倒影；材质带底座边缘的裁切面，从底座边上“开出来”）、`nobori.ts`（のぼり旗，摆在哪、写什么由场景给，顶点着色器里随风飘）
+  - `geometry/shapes.ts`：圆角盒、管线、命名 Group；`bakeStatic` 建完后按材质合批，重复物用 InstancedMesh
+- `machi/scenes/`：`types.ts` 是场景与引擎的约定（`MachiSceneDefinition` 的 `resolveArt` / `create`，`MachiScene` 每帧 `direct(frame)`），`index.ts` 是场景表
+  - `konbini/`：便利店街角。`layout.ts` 尺寸表、`base.ts` 底座与路、`store.ts` 店身与三面广告屏、`interior.ts` 店内、`props.ts` 街边道具与按歌变的 `SongProps`、`konbiniSigns.ts` + `konbiniSignPaint.ts` 招牌、`konbiniLights.ts` 店内光 / 路灯 / 地面光斑、`konbiniDoor.ts` 段落开头开自动门（`../paragraphStructure.ts`）、`konbiniSeed.ts` 按 seed 变自行车、伞、风向、水洼、`konbiniScene.ts` 把它们装起来。场景里不放人物
+- 歌词字号由场景里的屏幕决定，通用字号设置只影响底部字幕
 
 ## Host surfaces
 

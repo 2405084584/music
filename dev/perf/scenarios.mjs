@@ -32,7 +32,7 @@ const STYLES = [
     ['tempera', 'Tempera', 'Pixi'],
     ['lumiere', '绘光', 'Pixi'],
     ['hanabi', '花火', 'Pixi'],
-    ['konbini', '雨町', 'three.js'],
+    ['machi', '町景', 'three.js'],
     ['cadenza', 'Mindscape', 'DOM + 2D 画布'],
     ['partita', '云阶', 'DOM'],
     ['fume', 'Fume', 'DOM + 2D 画布'],
