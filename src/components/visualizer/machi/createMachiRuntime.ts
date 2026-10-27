@@ -327,7 +327,6 @@ export class MachiRuntime {
         this.stage = stage;
         stage.surfaces.road.forEach(surface => { surface.material = this.ground.asphalt; });
         stage.surfaces.lot.forEach(surface => { surface.material = this.ground.concrete; });
-        stage.surfaces.water?.forEach(surface => { surface.material = this.ground.water; });
         this.ground.uniforms.uPuddleOffset.value.set(stage.puddles.offset[0], stage.puddles.offset[1]);
         this.ground.uniforms.uPuddleAmount.value = stage.puddles.amount;
         this.scene.add(stage.root);
@@ -515,8 +514,8 @@ export class MachiRuntime {
         this.renderer.info.reset();
         if (this.skyLights.moon.shadow.needsUpdate) this.renderer.shadowMap.needsUpdate = true;
         const camera = this.camera.camera;
-        // 干的路面不映倒影：省掉倒影那一遍（有池水的场景一直要）。
-        if (this.environment.wetness > 0.02 || this.stage.surfaces.water?.length) {
+        // 干的路面不映倒影：省掉倒影那一遍。
+        if (this.environment.wetness > 0.02) {
             this.reflection.render(this.renderer, this.scene, camera);
             this.ground.uniforms.uReflectMatrix.value.copy(this.reflection.textureMatrix);
         }

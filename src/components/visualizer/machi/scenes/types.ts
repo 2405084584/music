@@ -78,8 +78,8 @@ export interface MachiScene {
     readonly weather: MachiWeatherLayout;
     /** 倒影的镜像平面高度。 */
     readonly reflectionPlaneY: number;
-    /** 路面与场地 / 人行道的顶面：引擎给它们装湿地面材质；池水装一直湿着的水面材质。 */
-    readonly surfaces: { road: THREE.Mesh[]; lot: THREE.Mesh[]; water?: THREE.Mesh[] };
+    /** 路面与场地 / 人行道的顶面：引擎给它们装湿地面材质。 */
+    readonly surfaces: { road: THREE.Mesh[]; lot: THREE.Mesh[] };
     /** 水洼噪声的平移与覆盖量（按歌变）。 */
     readonly puddles: { offset: [number, number]; amount: number };
     setContent(content: MachiSceneContent): void;

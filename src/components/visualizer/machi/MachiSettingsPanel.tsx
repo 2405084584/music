@@ -23,7 +23,7 @@ export const MACHI_SCENE_LABEL_KEYS: Record<MachiTuning['scene'], string> = {
     auto: 'options.machiSceneAuto',
     konbini: 'options.machiSceneKonbini',
     station: 'options.machiSceneStation',
-    park: 'options.machiScenePark',
+    kowloon: 'options.machiSceneKowloon',
 };
 
 export const MACHI_TIME_LABEL_KEYS: Record<MachiTimeOfDay, string> = {
@@ -62,16 +62,6 @@ const SCENE_GLYPHS: Record<MachiTuning['scene'], React.ReactNode> = {
             <path d="M3 20h18" />
         </>
     ),
-    // 樱花公园：一棵樱花树、一架秋千
-    park: (
-        <>
-            <path d="M7 20v-7" />
-            <path d="M7 13c-3.2 0-4.5-2.2-3.5-4.2 1-2 3.2-1.6 3.5-1 .3-2.3 3.8-2.6 4.6-.4 2-.3 2.9 2.2 1.6 3.6C12.3 13 9.8 13 7 13z" />
-            <path d="M14 20l2.5-8 2.5 8" opacity="0.7" />
-            <path d="M16.5 12v4.5M15.5 16.5h2" opacity="0.7" />
-            <path d="M3 20h18" />
-        </>
-    ),
     // 加油站：罩棚、一台加油机，旁边停着一辆车
     station: (
         <>
@@ -80,6 +70,15 @@ const SCENE_GLYPHS: Record<MachiTuning['scene'], React.ReactNode> = {
             <path d="M8 20v-6h3v6" />
             <path d="M15 20v-3.5l1.5-2h4.5v5.5" opacity="0.7" />
             <path d="M3 20h19" />
+        </>
+    ),
+    // 城寨酒吧：高低错落的楼、楼顶一根天线，楼面伸出一块竖招牌
+    kowloon: (
+        <>
+            <path d="M3 20V9h5v11M8 20V5h6v15M14 20v-8h6v8" />
+            <path d="M11 5V2.5M9.5 3.5h3" opacity="0.6" />
+            <path d="M14 7h1M15 6h2.5v4.5H15z" opacity="0.7" />
+            <path d="M3 20h18" />
         </>
     ),
 };

@@ -2822,7 +2822,7 @@ export default {
     "machiSceneAuto": "自动",
     "machiSceneKonbini": "便利店",
     "machiSceneStation": "加油站",
-    "machiScenePark": "樱花公园",
+    "machiSceneKowloon": "城寨酒吧",
     "machiSkySection": "时间与天气",
     "machiTimeOfDay": "时间",
     "machiTimeOfDayHint": "自动：跟本地时间走，白天、黄昏或夜里。",

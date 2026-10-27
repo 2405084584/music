@@ -2822,7 +2822,7 @@ export default {
     "machiSceneAuto": "Tự động",
     "machiSceneKonbini": "Konbini",
     "machiSceneStation": "Trạm xăng",
-    "machiScenePark": "Công viên hoa anh đào",
+    "machiSceneKowloon": "Quán bar Cửu Long Trại Thành",
     "machiSkySection": "Thời gian và thời tiết",
     "machiTimeOfDay": "Thời gian",
     "machiTimeOfDayHint": "Tự động theo đồng hồ của bạn: ban ngày, hoàng hôn hoặc ban đêm.",

@@ -40,8 +40,6 @@ export interface MachiPalette {
     roadPaint: string;
     concrete: string;
     curb: string;
-    /** 池水的底色。 */
-    water: string;
     plinthTop: string;
     plinthMid: string;
     plinthLow: string;
@@ -106,7 +104,6 @@ const ART = {
     roadPaint: '#c9d1dc',
     concrete: '#4b5363',
     curb: '#5f6878',
-    water: '#29505a',
     plinthTop: '#20242c',
     plinthMid: '#3d3a36',
     plinthLow: '#2b2622',
@@ -263,7 +260,6 @@ export const resolveMachiPalette = (theme: Theme, seed: string | number, resolve
         roadPaint: ART.roadPaint,
         concrete: tintDark(ART.concrete, background),
         curb: ART.curb,
-        water: tintDark(ART.water, background),
         plinthTop: ART.plinthTop,
         plinthMid: ART.plinthMid,
         plinthLow: ART.plinthLow,

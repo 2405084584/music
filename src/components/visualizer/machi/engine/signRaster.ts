@@ -1,5 +1,4 @@
 import { resolveLucideIconNode } from '../../../../services/lucideIconResolver';
-import { adjustLightnessForContrast } from '../../../../utils/themeColorMath';
 import { lucideIconPath2d } from '../../lucidePath2d';
 import type { WordColorRange } from '../../wordColoring';
 import type { MachiBoardLayout, MachiMeasure } from './boardLayout';
@@ -77,6 +76,20 @@ export const drawIcon = (
     context.restore();
 };
 
+/** 霓虹灯管写字（描边）：外面一圈光晕（同色），里面一道近白的芯。 */
+export const strokeNeonText = (context: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, glow: number) => {
+    context.shadowColor = color;
+    context.shadowBlur = glow;
+    context.strokeStyle = color;
+    context.lineWidth = glow * 0.45;
+    context.strokeText(text, x, y);
+    context.shadowBlur = glow * 0.4;
+    context.strokeStyle = '#ffffff';
+    context.lineWidth = glow * 0.14;
+    context.strokeText(text, x, y);
+    context.shadowBlur = 0;
+};
+
 /** 把一段字缩到 maxWidth 以内的字号。 */
 export const fitFont = (context: CanvasRenderingContext2D, font: MachiFont, text: string, maxWidth: number, maxPx: number, minPx = 8) => {
     let px = maxPx;
@@ -119,10 +132,6 @@ export interface MachiBoardPaint {
     keywordRanges: readonly WordColorRange[];
     /** 曲名卡：第一行用 lit 色，第二行用 unlit 色，整面都“亮着”。 */
     card?: boolean;
-    /** 未唱的字只描边（布横幅：唱到的字才“印”上颜色）。 */
-    outlineUnlit?: boolean;
-    /** 字印在这个底色上：关键词色压暗到够对比（白布上的浅色关键词看不清）。 */
-    contrastAgainst?: string;
 }
 
 /** 广告屏字面：canvas 上半张是未唱的字，下半张是唱到的字（着色器按点亮位置在两者之间切）。 */
@@ -143,23 +152,10 @@ export const paintMachiBoard = (canvas: HTMLCanvasElement, paint: MachiBoardPain
             const y = row.centerY * scaleY;
             const keyword = paint.keywordRanges.find(range => glyph.offset >= range.startOffset && glyph.offset < range.endOffset);
             // 上半：未唱。
-            const unlit = paint.card && rowIndex === 0 ? paint.lit : paint.unlit;
-            if (paint.outlineUnlit && !paint.card) {
-                context.globalAlpha = 0.14;
-                context.fillStyle = unlit;
-                context.fillText(glyph.text, x, y);
-                context.globalAlpha = 1;
-                context.strokeStyle = unlit;
-                context.lineWidth = Math.max(1.5, px * scaleX * 0.045);
-                context.lineJoin = 'round';
-                context.strokeText(glyph.text, x, y);
-            } else {
-                context.fillStyle = unlit;
-                context.fillText(glyph.text, x, y);
-            }
+            context.fillStyle = paint.card && rowIndex === 0 ? paint.lit : paint.unlit;
+            context.fillText(glyph.text, x, y);
             // 下半：唱到的字。屏幕上的字是干净的像素，不画光晕（光晕会糊字，也会被 bloom 再放大一圈）。
-            let color = paint.card ? (rowIndex === 0 ? paint.lit : paint.unlit) : (keyword?.color ?? paint.lit);
-            if (paint.contrastAgainst && keyword) color = adjustLightnessForContrast(color, paint.contrastAgainst, 3.5);
+            const color = paint.card ? (rowIndex === 0 ? paint.lit : paint.unlit) : (keyword?.color ?? paint.lit);
             context.fillStyle = color;
             context.fillText(glyph.text, x, y + half);
         });

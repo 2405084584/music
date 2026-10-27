@@ -1,4 +1,4 @@
-import { context2d, drawIcon, fitFont, fontSpec, type MachiFont } from '../../engine/signRaster';
+import { context2d, drawIcon, fitFont, fontSpec, strokeNeonText, type MachiFont } from '../../engine/signRaster';
 
 // src/components/visualizer/machi/scenes/station/stationSignPaint.ts
 // 加油站停车场各块招牌的 Canvas 2D 画法：罩棚的店招（主题图标 logo + 歌手当站名）、价格立柱（品牌色顶 + 三行七段数码管，
@@ -155,20 +155,6 @@ export const paintStationPylon = (canvas: HTMLCanvasElement, paint: StationPylon
     });
 };
 
-/** 霓虹灯管写字：外面一圈光晕（同色），里面一道近白的芯。 */
-const neonText = (context: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, glow: number) => {
-    context.shadowColor = color;
-    context.shadowBlur = glow;
-    context.strokeStyle = color;
-    context.lineWidth = glow * 0.45;
-    context.strokeText(text, x, y);
-    context.shadowBlur = glow * 0.4;
-    context.strokeStyle = '#ffffff';
-    context.lineWidth = glow * 0.14;
-    context.strokeText(text, x, y);
-    context.shadowBlur = 0;
-};
-
 /** 立牌顶上的竖灯箱：「MOTEL」五个字母竖排，霓虹色。 */
 export const paintMotelTall = (canvas: HTMLCanvasElement, font: MachiFont, neon: string) => {
     const context = context2d(canvas);
@@ -180,7 +166,7 @@ export const paintMotelTall = (canvas: HTMLCanvasElement, font: MachiFont, neon:
     const letters = 'MOTEL'.split('');
     const step = height / (letters.length + 0.2);
     context.font = fontSpec({ ...font, weight: 800 }, Math.min(width * 0.72, step * 0.86));
-    letters.forEach((letter, index) => neonText(context, letter, width / 2, step * (index + 0.6), neon, width * 0.08));
+    letters.forEach((letter, index) => strokeNeonText(context, letter, width / 2, step * (index + 0.6), neon, width * 0.08));
 };
 
 /** 名字横牌：曲名（放不下就缩字），霓虹描边。 */
@@ -192,7 +178,7 @@ export const paintMotelName = (canvas: HTMLCanvasElement, font: MachiFont, title
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     fitFont(context, font, title, width * 0.86, height * 0.62);
-    neonText(context, title, width / 2, height * 0.54, neon, height * 0.1);
+    strokeNeonText(context, title, width / 2, height * 0.54, neon, height * 0.1);
 };
 
 /** VACANCY 小灯箱：noLit 时前面的「NO」也亮（客满）。 */
@@ -204,11 +190,11 @@ export const paintMotelVacancy = (canvas: HTMLCanvasElement, font: MachiFont, no
     context.textBaseline = 'middle';
     context.font = fontSpec({ ...font, weight: 800 }, height * 0.62);
     context.textAlign = 'left';
-    if (noLit) neonText(context, 'NO', width * 0.05, height * 0.55, '#ff3b4a', height * 0.12);
+    if (noLit) strokeNeonText(context, 'NO', width * 0.05, height * 0.55, '#ff3b4a', height * 0.12);
     else {
         context.fillStyle = '#3a2328';
         context.fillText('NO', width * 0.05, height * 0.55);
     }
     context.textAlign = 'right';
-    neonText(context, 'VACANCY', width * 0.95, height * 0.55, '#58f0a0', height * 0.12);
+    strokeNeonText(context, 'VACANCY', width * 0.95, height * 0.55, '#58f0a0', height * 0.12);
 };

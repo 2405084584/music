@@ -32,7 +32,6 @@ uniform float uWet;
 uniform vec3 uSky;
 uniform float uReflectStrength;
 uniform float uPuddleBias;
-uniform float uWater;
 varying vec3 vKWorld;
 
 float kHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -69,14 +68,13 @@ const OUTPUT = /* glsl */ `
 {
     vec2 kp = vKWorld.xz;
     // 干的时候没有水洼；积雪盖住水洼。
-    float puddle = uWater > 0.5 ? 1.0 : kPuddle(kp) * smoothstep(0.15, 0.85, uWet) * (1.0 - min(1.0, uMachiSnow * 1.5));
-    float wetness = max(uWet, uWater);
+    float puddle = kPuddle(kp) * smoothstep(0.15, 0.85, uWet) * (1.0 - min(1.0, uMachiSnow * 1.5));
     vec3 ripple = kRippleLayer(kp, 2.3, uTime, 0.0) + kRippleLayer(kp, 3.9, uTime * 1.13, 19.0) * 0.7;
     vec4 rc = uReflectMatrix * vec4(vKWorld, 1.0);
     vec2 ruv = rc.xy / rc.w + ripple.xy * mix(0.004, 0.018, puddle);
     vec3 reflection = texture2D(uReflection, ruv).rgb;
     // 水洼：压暗、映天空、映倒影；水洼外：湿润的一层弱反光。
-    vec3 wet = outgoingLight * mix(1.0, 0.78, wetness) + reflection * uReflectStrength * 0.16 * wetness;
+    vec3 wet = outgoingLight * mix(1.0, 0.78, uWet) + reflection * uReflectStrength * 0.16 * uWet;
     vec3 pool = outgoingLight * 0.42 + uSky * 0.18 + reflection * uReflectStrength + ripple.z * uSky * 0.6;
     outgoingLight = mix(wet, pool, puddle);
 }
@@ -96,8 +94,6 @@ export class MachiGround {
     };
     readonly asphalt: THREE.MeshToonMaterial;
     readonly concrete: THREE.MeshToonMaterial;
-    /** 池水：整片都是“水洼”，一直湿着，不积雪。 */
-    readonly water: THREE.MeshToonMaterial;
 
     private readonly gradient: THREE.Texture;
 
@@ -105,16 +101,14 @@ export class MachiGround {
         this.gradient = materials.gradient;
         this.asphalt = materials.track(this.create('asphalt', 0));
         this.concrete = materials.track(this.create('concrete', 0.08));
-        this.water = materials.track(this.create('water', 0, true));
     }
 
-    private create(key: 'asphalt' | 'concrete' | 'water', puddleBias: number, water = false) {
+    private create(key: 'asphalt' | 'concrete', puddleBias: number) {
         const material = new THREE.MeshToonMaterial({ color: this.blend.get(key), gradientMap: this.gradient });
         material.name = `machi:wet:${key}`;
         material.onBeforeCompile = shader => {
             injectMachiSnow(shader, this.snow);
-            Object.assign(shader.uniforms, this.uniforms, { uPuddleBias: { value: puddleBias }, uWater: { value: water ? 1 : 0 } });
-            if (water) shader.uniforms.uMachiSnow = { value: 0 };
+            Object.assign(shader.uniforms, this.uniforms, { uPuddleBias: { value: puddleBias } });
             shader.vertexShader = shader.vertexShader
                 .replace('#include <common>', '#include <common>\nvarying vec3 vKWorld;')
                 .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvKWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
@@ -122,14 +116,13 @@ export class MachiGround {
                 .replace('#include <common>', `#include <common>\n${PARS}`)
                 .replace('#include <opaque_fragment>', `${OUTPUT}\n#include <opaque_fragment>`);
         };
-        material.customProgramCacheKey = () => `machi-wet-${puddleBias}-${water ? 1 : 0}`;
+        material.customProgramCacheKey = () => `machi-wet-${puddleBias}`;
         return material;
     }
 
     syncColors() {
         this.asphalt.color.copy(this.blend.get('asphalt'));
         this.concrete.color.copy(this.blend.get('concrete'));
-        this.water.color.copy(this.blend.get('water'));
         this.uniforms.uSky.value.copy(this.blend.get('skyBottom'));
     }
 }

@@ -248,14 +248,14 @@ Visualizer 消费已解析的 `LyricData` / `Line` / `Word`，不负责解析 `.
 
 ### Machi
 
-町景（实验）：three.js 程序化生成的日式小镇微缩模型（约 12m×12m 底座，正交斜俯视），歌词是场景里的招牌、屏幕。底座与路面薄板共用 `engine/geometry/plinth.ts`。设置里选场景（便利店街角、加油站停车场、樱花公园）、时间、天气，三项都可以“自动”。不挂共享背景（`background: false`），天空自己画。快速定位：
+町景（实验）：three.js 程序化生成的街角微缩模型（约 12m×12m 底座，正交斜俯视），歌词是场景里的招牌、屏幕。底座与路面薄板共用 `engine/geometry/plinth.ts`。设置里选场景（便利店街角、加油站停车场、城寨酒吧）、时间、天气，三项都可以“自动”。不挂共享背景（`background: false`），天空自己画。快速定位：
 
 - `machi/VisualizerMachi.tsx`：React 外壳 / 字幕；运行时用 `pixi/pixiRuntimeHost.ts` 的 `useVisualizerPixiHost` 托管（与渲染器无关），建一次，换歌、换主题、换设置、暂停、静态模式就地推给它；WebGL 上下文丢了换一个 epoch 重建
 - `machi/tuning.ts` + `types.ts` + `machiTuning.ts` + `MachiSettingsPanel.tsx`：tuning（`machi_tuning`：场景 / 时间 / 天气，都可以 `auto`；“自动”场景按 seed 选，`resolveMachiSceneId`），设置面板（场景用线稿小图，不放实时预览）与快捷控件的三个轮换胶囊
 - `machi/createMachiRuntime.ts`：引擎。WebGLRenderer、自己的 RAF 循环（暂停时只在镜头动、颜色插值、换牌动画时出帧）、就地换场景（先淡到黑，在黑场里拆旧场景、建新场景，重建那一下的卡顿藏在黑里，再淡入；上下文和后处理留着；预览与调试钩子直接换）、自动画质降级（DPR、倒影分辨率、阴影图、景深、光条、bloom，只降不升）、DEV 调试钩子 `window.__machiDebug`（`setView(方位角, 俯角, 缩放)`、`renderAt(歌曲秒, 氛围秒)`、`nextCar(氛围秒)`、`setTuning({ scene, timeOfDay, weather })`、`stats()`）
 - `machi/engine/`：三个场景共用的部分
   - `palette.ts`：主题 → 调色板（纯函数）。夜的底子固定，主题色进品牌三色条、屏幕字、LED、霓虹、贩卖机和商品，天空 / 暖光只偏一点色相；偏灰主题按 seed 选经典配色；背景亮的主题换白底屏幕。场景自己的颜色由场景的 `resolveArt` 给，放进 `art`。`materials.ts` 的 `MachiColorBlend` 换主题时插值过去；`MachiMaterials` 引擎一份、每个场景一份（场景拆掉时一起销毁），自发光件的规格由场景 `defineGlows` 登记
-  - `lyricScreen.ts`：逐字点亮当前行的 LED 屏（还有一个布横幅变体，公园用；字的时间来自 `buildLineGraphemeTimeline`，关键词按字符范围着色；像素格与子像素条（格子太小时淡掉防摩尔纹）、点亮边界对齐像素格、慢刷新带、面板玻璃反光，换行时信号切换——横带错位、色散、雪花点；最亮的通道压到 bloom 门槛附近，字不被晕开）。`ledStrip.ts`：LED 点阵跑马灯。`signRaster.ts` + `boardLayout.ts`：字体、图标（经 `../lucidePath2d.ts` 画成 Path2D，与花火拼贴共用）、缩字折行、字面排版
+  - `lyricScreen.ts`：逐字点亮当前行的 LED 屏（字的时间来自 `buildLineGraphemeTimeline`，关键词按字符范围着色；像素格与子像素条（格子太小时淡掉防摩尔纹）、点亮边界对齐像素格、慢刷新带、面板玻璃反光，换行时信号切换——横带错位、色散、雪花点；最亮的通道压到 bloom 门槛附近，字不被晕开）。`ledStrip.ts`：LED 点阵跑马灯。`signRaster.ts` + `boardLayout.ts`：字体、图标（经 `../lucidePath2d.ts` 画成 Path2D，与花火拼贴共用）、缩字折行、字面排版
   - `environment.ts`：时间与天气（纯函数）。设置 → 目标（白天程度：自动按本地时钟，05:00–06:30 天亮、16:30–18:30 经黄昏入夜；天气：自动按 seed 加权 雨 35% / 晴 30% / 雾 20% / 雪 15%），运行时按真实时间阻尼追过去（暂停时也走完），路面湿度和积雪比降水慢（雨停约 20 秒才干，雪约 8 秒积起、12 秒化掉）；再推出日光强度、人造光、路灯、bloom / 光条、云量、星星、雾气。天空、天光、月光 / 太阳的颜色在调色板的夜、黄昏（`*Dusk`）、白天（`*Day`）三套之间插值，阴天往灰里拉，结果经 `MachiColorBlend.setDerived` 盖在同名键上
   - `snow.ts`：积雪注入卡通材质（朝上的面 × 噪声，光照之前改底色），场景给的屋顶下面不积；地面同一段着色，积雪盖住水洼
   - `director.ts`：牌面在行与曲名卡之间切、跑马灯写什么、副歌权重、副歌开头的闪电（只在雨天）、招牌闪烁日程、音频包络（纯函数）
@@ -268,7 +268,7 @@ Visualizer 消费已解析的 `LyricData` / `Line` / `Word`，不负责解析 `.
 - `machi/scenes/`：`types.ts` 是场景与引擎的约定（`MachiSceneDefinition` 的 `resolveArt` / `create`，`MachiScene` 每帧 `direct(frame)`），`index.ts` 是场景表
   - `konbini/`：便利店街角。`layout.ts` 尺寸表、`base.ts` 底座与路、`store.ts` 店身与三面广告屏、`interior.ts` 店内、`props.ts` 街边道具与按歌变的 `SongProps`、`konbiniSigns.ts` + `konbiniSignPaint.ts` 招牌、`konbiniLights.ts` 店内光 / 路灯 / 地面光斑、`konbiniDoor.ts` 段落开头开自动门（`../paragraphStructure.ts`）、`konbiniSeed.ts` 按 seed 变自行车、伞、风向、水洼、`konbiniScene.ts` 把它们装起来。场景里不放人物
   - `station/`：加油站停车场（默认镜头从正前偏右 25° 看，高的罩棚和货车放后排，前排只有车和细高的立牌，挡不到货车屏幕）。`layout.ts` 尺寸表、`structures.ts` 底座与路、罩棚（朝下的聚光——卡通渐变最暗一阶不是 0，点光会从下面把罩棚顶“照亮”）、加油岛、价格立柱、汽车旅馆高立牌（箭头一圈走马灯泡）、场地灯、`vehicles.ts` 停着的车（轿车、出租车顶灯、轻卡）与アドトラック（货厢侧面是 `engine/lyricScreen.ts` 的屏幕，逐字点亮当前行）、`stationSigns.ts` + `stationSignPaint.ts` 招牌（出租车顶灯滚下一句与曲名、罩棚店招写歌手、价格立柱的七段数码管是播放进度 / 总时长 / 第几句、旅馆立牌写曲名，副歌时 NO VACANCY）、`stationLights.ts`、`stationSeed.ts`（车位停什么、车色、出租车配色、谁打双闪）；车位按 seed 建，换了 seed 不同的歌整个场景重建（`rebuildsForSeed`）
-  - `park/`：樱花公园。`layout.ts` 尺寸表（树都在两侧与后角，不挡后排的横幅，也不压在离镜头最近的前右角）、`grounds.ts` 草地、石子路、池塘（`engine/fx/ground.ts` 的池水材质：一直湿着、不积雪）与红色拱桥、樱花祭小舞台（红白幕、太鼓、挂横幅的两根高杆与两盏照横幅的灯）、栅栏、长椅、园灯、贩卖机、公园时钟（指针走本地时间）、`trees.ts` 樱花树（树冠是一整块曲面：枝头与一圈伞形花团当元球，`MarchingCubes` 建场景时算一次等值面，并顶点后沿法线按噪声起伏——起伏要缓，太碎的小褶子会被描边 pass 画成排线——再用顶点色做出深浅花簇；地上的落花）、`playground.ts` 秋千、滑梯、攀登架、跷跷板、沙坑、熊猫摇摇马、`lanterns.ts` 提灯（实例化，随风摆；前面一串一盏一个字写下一句，换行时一盏盏翻过去，字在两半的图集上）、`ambience.ts` 飘落的花瓣（晴天多、下雪没有）与锦鲤、`parkLights.ts`；横幅是 `engine/lyricScreen.ts` 的 `banner` 变体（未唱的字只描边，唱到的“印”上颜色，布面随风起伏）
+  - `kowloon/`：城寨酒吧（香港九龙城寨，赛博朋克；默认镜头从前右 30° 看，高楼都在左边与后排，前右只有矮的大排档与电线杆，挡不到酒吧和大屏）。`layout.ts` 尺寸表（楼是一栋栋窄楼，进深与高低错开；离镜头最远的后左角投到画面里最高，所以那里不比别处高）、`blocks.ts` 城寨楼（只在露在外面的楼面铺窗，避开歌词屏与招牌；铁窗笼、冷气机（下雨时滴水、墙上一道水渍）、晾衫竹、加建小间、楼板线上几段霓虹灯带；亮窗、暗窗、晾的衫各一个 InstancedMesh；楼顶水箱、鱼骨天线、锅盖、天台小屋）、`bar.ts` 酒吧（B1 一楼掏空：玻璃门面、吧台下一道霓虹、高脚凳、背光酒架与瓶子、吊灯、随音乐明暗的点唱机）、`street.ts` 巷子（湿地面、明渠、各家铺面、伸出楼面的招牌箱与拉杆、楼顶广告架、大排档、电线杆与街灯、电线、贩卖机、电单车、全息投影机）、`kowloonSigns.ts` + `kowloonSignPaint.ts` 招牌（楼面上的歌词大屏是 `engine/lyricScreen.ts`，逐字点亮当前行；屏幕下沿的 `engine/ledStrip.ts` 跑马灯滚译文或曲名；门头霓虹写曲名、一块竖灯箱写歌手，其余店招按 seed 挑店名与写法，都画进一张图集，按稳定 / 两组会坏的灯管分三种材质）、`hologram.ts` 巷子里的全息投影（下一句：加色、扫描线、换字时横带错位；着色器里的平方都写成相乘——负数的 `pow` 在 D3D 上是 NaN，会被 bloom 晕满全屏）、`jet.ts` 隔一阵低低掠过楼顶的客机（启德航线，尾翼是主题色，按氛围时钟与 seed 排班）、`kowloonLights.ts`（店里、屏幕前、招牌一角粉青两盏、全息、档口、街灯，夜里一层霓虹色的底光）；换了 seed 不同的歌整个场景重建（`rebuildsForSeed`）
 - 歌词字号由场景里的屏幕决定，通用字号设置只影响底部字幕
 
 ## Host surfaces
