@@ -2822,6 +2822,7 @@ export default {
     "machiSceneAuto": "Otomatis",
     "machiSceneKonbini": "Konbini",
     "machiSceneStation": "Pom bensin",
+    "machiScenePark": "Taman sakura",
     "machiSkySection": "Waktu dan cuaca",
     "machiTimeOfDay": "Waktu",
     "machiTimeOfDayHint": "Otomatis mengikuti jam lokal: siang, senja, atau malam.",

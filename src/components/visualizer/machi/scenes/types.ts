@@ -65,6 +65,8 @@ export interface MachiSceneFrame {
     /** 时间与天气此刻的状态（渐变中的），和由它推出的灯光标量（人造光、路灯……）。 */
     environment: MachiEnvironmentState;
     look: MachiEnvironmentLook;
+    /** 每个世界单位多少像素（粒子按它定大小）。 */
+    pixelsPerUnit: number;
     /** 后处理的氛围参数：场景填雾里的两处灯（位置与颜色）。 */
     atmosphere: MachiAtmosphereFrame;
 }
@@ -76,8 +78,8 @@ export interface MachiScene {
     readonly weather: MachiWeatherLayout;
     /** 倒影的镜像平面高度。 */
     readonly reflectionPlaneY: number;
-    /** 路面与场地 / 人行道的顶面：引擎给它们装湿地面材质。 */
-    readonly surfaces: { road: THREE.Mesh[]; lot: THREE.Mesh[] };
+    /** 路面与场地 / 人行道的顶面：引擎给它们装湿地面材质；池水装一直湿着的水面材质。 */
+    readonly surfaces: { road: THREE.Mesh[]; lot: THREE.Mesh[]; water?: THREE.Mesh[] };
     /** 水洼噪声的平移与覆盖量（按歌变）。 */
     readonly puddles: { offset: [number, number]; amount: number };
     setContent(content: MachiSceneContent): void;

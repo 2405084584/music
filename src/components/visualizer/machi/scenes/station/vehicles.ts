@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { boxAt, boxSpan, cylinderAt, group, mesh, roundedBox, tubeBetween } from '../../engine/geometry/shapes';
+import { boxAt, boxSpan, cylinderAt, group, mesh, tubeBetween } from '../../engine/geometry/shapes';
 import type { MachiMaterials } from '../../engine/materials';
 import { CAR, TRUCK } from './layout';
 

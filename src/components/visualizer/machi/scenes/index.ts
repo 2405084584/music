@@ -1,5 +1,6 @@
 import type { MachiSceneId } from '../types';
 import { KONBINI_SCENE } from './konbini/konbiniScene';
+import { PARK_SCENE } from './park/parkScene';
 import { STATION_SCENE } from './station/stationScene';
 import type { MachiSceneDefinition } from './types';
 
@@ -9,4 +10,5 @@ import type { MachiSceneDefinition } from './types';
 export const MACHI_SCENES: Record<MachiSceneId, MachiSceneDefinition> = {
     konbini: KONBINI_SCENE,
     station: STATION_SCENE,
+    park: PARK_SCENE,
 };

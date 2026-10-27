@@ -23,6 +23,7 @@ export const MACHI_SCENE_LABEL_KEYS: Record<MachiTuning['scene'], string> = {
     auto: 'options.machiSceneAuto',
     konbini: 'options.machiSceneKonbini',
     station: 'options.machiSceneStation',
+    park: 'options.machiScenePark',
 };
 
 export const MACHI_TIME_LABEL_KEYS: Record<MachiTimeOfDay, string> = {
@@ -58,6 +59,16 @@ const SCENE_GLYPHS: Record<MachiTuning['scene'], React.ReactNode> = {
             <path d="M4 20V11h13v9" />
             <path d="M7 11V7.5h7V11" opacity="0.6" />
             <path d="M9.5 20v-4.5h3V20" opacity="0.6" />
+            <path d="M3 20h18" />
+        </>
+    ),
+    // 樱花公园：一棵樱花树、一架秋千
+    park: (
+        <>
+            <path d="M7 20v-7" />
+            <path d="M7 13c-3.2 0-4.5-2.2-3.5-4.2 1-2 3.2-1.6 3.5-1 .3-2.3 3.8-2.6 4.6-.4 2-.3 2.9 2.2 1.6 3.6C12.3 13 9.8 13 7 13z" />
+            <path d="M14 20l2.5-8 2.5 8" opacity="0.7" />
+            <path d="M16.5 12v4.5M15.5 16.5h2" opacity="0.7" />
             <path d="M3 20h18" />
         </>
     ),

@@ -15,13 +15,18 @@ import type { MachiPalette } from './palette';
 import { createCanvas, MACHI_REFERENCE_PX, paintMachiBoard, type MachiFont } from './signRaster';
 
 // src/components/visualizer/machi/engine/lyricScreen.ts
-// 逐字点亮当前行的 LED 屏（便利店屋顶的广告塔、加油站アドトラック的货厢侧面）：一个着色器材质，几块面共用。
+// 逐字点亮当前行的 LED 屏（便利店屋顶的广告塔、加油站アドトラック的货厢侧面），或一块布横幅（樱花公园的
+// 桜まつり：未唱的字只描边，唱到的“印”上颜色，布面随风轻轻起伏）：一个着色器材质，几块面共用。
 // 牌面贴图是一个小池子（当前、下一行预先画好、换行时的旧图），每张上半是未唱的字、下半是唱到的字，着色器按点亮位置
 // 在两者之间切。着色器做成户外 LED 屏：像素格与 RGB 子像素条（格子太小时淡掉防摩尔纹）、点亮边界对齐像素格、
 // 慢刷新带、面板玻璃反光；换行时信号切换（横带错位、色散、雪花点）。最亮的通道压到 bloom 门槛附近，字不被晕开。
 
+export type MachiLyricScreenVariant = 'screen' | 'banner';
+
 export interface MachiLyricScreenContent {
     palette: MachiPalette;
+    /** 布横幅：布色、上下沿的色带、字色（白布上压暗到够对比的颜色）。 */
+    banner?: { cloth: string; border: string; ink: string };
     font: MachiFont;
     measure: MachiMeasure;
     matchers: WordColorMatcher[];
@@ -37,6 +42,9 @@ export interface MachiLyricScreenFrame {
     staticMode: boolean;
     chorus: number;
     audio: number;
+    /** 布横幅：受光（白天、夜里被灯照着）与风。 */
+    light?: number;
+    wind?: number;
 }
 
 /** 字面贴图的宽度（每半张）：高度按字面宽高比取。 */
@@ -123,6 +131,50 @@ void main() {
 }
 `;
 
+const BANNER_VERTEX = /* glsl */ `
+uniform float uTime;
+uniform float uWind;
+varying vec2 vUv;
+void main() {
+    vUv = uv;
+    // 布面两头系在杆子上，中间随风起伏。
+    vec3 p = position;
+    float pinned = sin(uv.x * 3.14159);
+    p.z += (sin(uv.x * 9.0 - uTime * 2.1) * 0.6 + sin(uv.x * 4.0 + uv.y * 2.0 - uTime * 1.3) * 0.4) * 0.05 * uWind * pinned;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+}
+`;
+
+const BANNER_FRAGMENT = /* glsl */ `
+uniform sampler2D uMap;
+uniform vec3 uCloth;
+uniform vec3 uBorder;
+uniform float uLight;
+uniform float uTime;
+uniform float uWind;
+uniform vec3 uRowBottom;
+uniform vec3 uReveal;
+uniform float uSoft;
+varying vec2 vUv;
+void main() {
+    float y = 1.0 - vUv.y;
+    vec4 unlit = texture2D(uMap, vec2(vUv.x, 0.5 + vUv.y * 0.5));
+    vec4 lit = texture2D(uMap, vec2(vUv.x, vUv.y * 0.5));
+    float reveal = y < uRowBottom.x ? uReveal.x : (y < uRowBottom.y ? uReveal.y : uReveal.z);
+    float on = 1.0 - smoothstep(reveal - uSoft, reveal + uSoft, vUv.x);
+    // 布：随风起伏的褶子明暗，上下沿两道色带。
+    float fold = 0.93 + 0.07 * sin(vUv.x * 9.0 - uTime * 2.1) * uWind;
+    vec3 color = uCloth * fold;
+    float band = step(vUv.y, 0.06) + step(0.94, vUv.y);
+    color = mix(color, uBorder, clamp(band, 0.0, 1.0));
+    color = mix(color, unlit.rgb, unlit.a);
+    color = mix(color, lit.rgb, lit.a * on);
+    gl_FragColor = vec4(color * uLight, 1.0);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+}
+`;
+
 interface ScreenSlot {
     canvas: HTMLCanvasElement;
     texture: THREE.CanvasTexture;
@@ -145,7 +197,13 @@ export class MachiLyricScreen {
     private readonly geometries: THREE.BufferGeometry[] = [];
 
     /** width / height 是屏幕面的尺寸（米）。 */
-    constructor(materials: MachiMaterials, private readonly blend: MachiColorBlend, private readonly width: number, private readonly height: number) {
+    constructor(
+        materials: MachiMaterials,
+        private readonly blend: MachiColorBlend,
+        private readonly width: number,
+        private readonly height: number,
+        private readonly variant: MachiLyricScreenVariant = 'screen',
+    ) {
         const half = Math.round(TEXTURE_WIDTH * (height / width));
         this.box = { width: TEXTURE_WIDTH, height: half, paddingX: 0.05, referencePx: MACHI_REFERENCE_PX };
         this.pool = Array.from({ length: POOL_SIZE }, () => {
@@ -155,10 +213,16 @@ export class MachiLyricScreen {
             texture.anisotropy = 8;
             return { canvas, texture, key: '', layout: null, usedAt: 0 };
         });
+        const banner = variant === 'banner';
         this.material = materials.track(new THREE.ShaderMaterial({
-            vertexShader: VERTEX,
-            fragmentShader: FRAGMENT,
+            vertexShader: banner ? BANNER_VERTEX : VERTEX,
+            fragmentShader: banner ? BANNER_FRAGMENT : FRAGMENT,
+            side: banner ? THREE.DoubleSide : THREE.FrontSide,
             uniforms: {
+                uCloth: { value: new THREE.Color(1, 1, 1) },
+                uBorder: { value: new THREE.Color(1, 0, 0) },
+                uLight: { value: 1 },
+                uWind: { value: 0.5 },
                 uMap: { value: this.pool[0]!.texture },
                 uBase: { value: new THREE.Color() },
                 uBright: { value: 1 },
@@ -177,9 +241,9 @@ export class MachiLyricScreen {
         this.material.name = 'machi:lyricScreen';
     }
 
-    /** 一块屏幕面（平面网格），摆在 position、绕 y 转 rotationY。 */
+    /** 一块屏幕面（平面网格），摆在 position、绕 y 转 rotationY。布横幅多分几段，好起伏。 */
     createFace(position: THREE.Vector3, rotationY: number, name: string) {
-        const geometry = new THREE.PlaneGeometry(this.width, this.height);
+        const geometry = this.variant === 'banner' ? new THREE.PlaneGeometry(this.width, this.height, 24, 4) : new THREE.PlaneGeometry(this.width, this.height);
         this.geometries.push(geometry);
         const face = new THREE.Mesh(geometry, this.material);
         face.name = name;
@@ -221,7 +285,10 @@ export class MachiLyricScreen {
             ? layoutMachiBoardCard(content.cardTitle, content.cardSubtitle, this.box, content.measure)
             : layoutMachiBoardLine(line, this.box, content.measure);
         const keywordRanges = card ? [] : buildWordColorRangesFromMatchers(line!.fullText, content.matchers);
-        paintMachiBoard(slot.canvas, { layout, font: content.font, unlit: content.palette.boardUnlit, lit: content.palette.boardLit, keywordRanges, card });
+        const banner = content.banner;
+        paintMachiBoard(slot.canvas, banner
+            ? { layout, font: content.font, unlit: banner.ink, lit: banner.ink, keywordRanges, card, outlineUnlit: true, contrastAgainst: banner.cloth }
+            : { layout, font: content.font, unlit: content.palette.boardUnlit, lit: content.palette.boardLit, keywordRanges, card });
         slot.texture.needsUpdate = true;
         slot.key = key;
         slot.layout = layout;
@@ -292,13 +359,23 @@ export class MachiLyricScreen {
             (reveal[2] ?? 0) / this.box.width,
         );
         const uniforms = this.material.uniforms;
+        uniforms.uTime!.value = frame.ambientTime;
+        if (this.variant === 'banner') {
+            const banner = content.banner;
+            if (banner) {
+                (uniforms.uCloth!.value as THREE.Color).set(banner.cloth);
+                (uniforms.uBorder!.value as THREE.Color).set(banner.border);
+            }
+            uniforms.uLight!.value = (frame.light ?? 1) * (1 + 0.04 * frame.audio + 0.05 * this.chorusGlow);
+            uniforms.uWind!.value = frame.staticMode ? 0 : frame.wind ?? 0.5;
+            return;
+        }
         (uniforms.uBase!.value as THREE.Color).copy(this.blend.get('boardBase')).multiplyScalar(palette.boardIsLight ? 0.98 : 1.0);
         uniforms.uLitGain!.value = palette.boardIsLight ? 1.0 : 1.25 + 0.2 * this.chorusGlow;
         uniforms.uUnlitGain!.value = palette.boardIsLight ? 1.0 : 0.9;
         uniforms.uBright!.value = 1 + 0.05 * frame.audio + 0.06 * this.chorusGlow;
         uniforms.uPeak!.value = palette.boardIsLight ? PEAK.light : PEAK.dark;
         uniforms.uGlitch!.value = glitch;
-        uniforms.uTime!.value = frame.ambientTime;
         (uniforms.uSheen!.value as THREE.Color).copy(this.blend.get('moon')).multiplyScalar(0.35);
     }
 

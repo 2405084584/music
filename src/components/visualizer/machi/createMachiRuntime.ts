@@ -320,6 +320,7 @@ export class MachiRuntime {
         this.stage = stage;
         stage.surfaces.road.forEach(surface => { surface.material = this.ground.asphalt; });
         stage.surfaces.lot.forEach(surface => { surface.material = this.ground.concrete; });
+        stage.surfaces.water?.forEach(surface => { surface.material = this.ground.water; });
         this.ground.uniforms.uPuddleOffset.value.set(stage.puddles.offset[0], stage.puddles.offset[1]);
         this.ground.uniforms.uPuddleAmount.value = stage.puddles.amount;
         this.scene.add(stage.root);
@@ -465,8 +466,8 @@ export class MachiRuntime {
         this.renderer.info.reset();
         if (this.skyLights.moon.shadow.needsUpdate) this.renderer.shadowMap.needsUpdate = true;
         const camera = this.camera.camera;
-        // 干的路面不映倒影：省掉倒影那一遍。
-        if (this.environment.wetness > 0.02) {
+        // 干的路面不映倒影：省掉倒影那一遍（有池水的场景一直要）。
+        if (this.environment.wetness > 0.02 || this.stage.surfaces.water?.length) {
             this.reflection.render(this.renderer, this.scene, camera);
             this.ground.uniforms.uReflectMatrix.value.copy(this.reflection.textureMatrix);
         }
@@ -558,13 +559,14 @@ export class MachiRuntime {
         const look = this.look;
         const rain = environment.rain * (0.62 + 0.22 * audio + 0.12 * this.chorus) * intensity;
         const camera = this.camera.camera;
+        const pixelsPerUnit = (this.size.height * this.pixelRatio) / ((camera.top - camera.bottom) / camera.zoom);
         this.weather.update({
             time: this.clock.elapsed,
             rain,
             snow: environment.snow * (0.75 + 0.25 * intensity),
             wetness: environment.wetness,
             glint: 1 - 0.9 * environment.daylight,
-            pixelsPerUnit: (this.size.height * this.pixelRatio) / ((camera.top - camera.bottom) / camera.zoom),
+            pixelsPerUnit,
         });
         // 闪电只在下雨时有。
         const lightning = this.staticMode || environment.rain < 0.5 ? 0 : resolveMachiLightning(this.lightningTimes, songTime) * environment.rain;
@@ -607,6 +609,7 @@ export class MachiRuntime {
             trafficChance: TRAFFIC_CHANCE[this.theme.animationIntensity] ?? 0.6,
             environment,
             look,
+            pixelsPerUnit,
             atmosphere,
         });
     }
