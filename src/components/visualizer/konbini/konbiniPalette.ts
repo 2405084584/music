@@ -60,7 +60,7 @@ export interface KonbiniPalette {
     /** 店招底色与店招上的字。 */
     signBase: string;
     signText: string;
-    /** 屋顶广告牌：灯箱底、未唱到的字、唱到的字；亮色主题是白底彩字的日式灯箱。 */
+    /** 屋顶广告屏：屏幕底色、未唱到的字、唱到的字；亮色主题是白底彩字的屏幕。 */
     boardBase: string;
     boardUnlit: string;
     boardLit: string;
@@ -75,9 +75,9 @@ export interface KonbiniPalette {
     products: string[];
 }
 
-/** 主题背景亮度高于它时按亮色主题处理（灯箱换成白底）。 */
+/** 主题背景亮度高于它时按亮色主题处理（广告屏换成白底）。 */
 export const KONBINI_LIGHT_THEME_LUMINANCE = 0.4;
-/** 灯箱字与灯箱底的最低对比度。 */
+/** 广告屏上的字与底色的最低对比度。 */
 export const KONBINI_BOARD_MIN_CONTRAST = 4.5;
 /** 低于这个饱和度的颜色算“没有颜色”（默认主题的强调色就是灰的）。 */
 const CHROMATIC_SATURATION = 0.22;
@@ -201,7 +201,7 @@ const resolveBrand = (theme: Theme, seed: string | number): [string, string, str
     return [first, '#f4f1ea', third];
 };
 
-/** 灯箱的字：深色灯箱上是发光的强调色（偏灰时用金色），白色灯箱上是压暗到够对比的主题色。 */
+/** 广告屏的字：深色屏上是发光的强调色（偏灰时用金色），白底屏上是压暗到够对比的主题色。 */
 const resolveBoard = (theme: Theme, brand: [string, string, string], isLight: boolean) => {
     const accent = isChromatic(theme.accentColor) ? theme.accentColor : brand[0];
     if (isLight) {

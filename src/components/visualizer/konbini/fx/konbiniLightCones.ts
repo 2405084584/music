@@ -1,11 +1,10 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { LEVEL } from '../geometry/layout';
 import type { KonbiniColorBlend, KonbiniMaterials } from '../konbiniMaterials';
 
 // src/components/visualizer/konbini/fx/konbiniLightCones.ts
-// 雨里看得见的光柱：路灯往下一束、广告塔每盏射灯往字面一小束。几个开口圆锥合成一个网格、一个 draw call，
-// 加色混合、不写深度；越靠灯头越亮，越靠锥面边缘越淡（按法线与视线的夹角），再叠一点缓慢流动的噪声像雨雾里的光。
+// 雨里看得见的光柱：路灯往下一束开口圆锥，一个 draw call，加色混合、不写深度；越靠灯头越亮，
+// 越靠锥面边缘越淡（按法线与视线的夹角），再叠一点缓慢流动的噪声像雨雾里的光。
 
 const VERTEX = /* glsl */ `
 varying vec2 vUv;
@@ -74,13 +73,8 @@ export class KonbiniLightCones {
     readonly mesh: THREE.Mesh;
     private readonly material: THREE.ShaderMaterial;
 
-    constructor(materials: KonbiniMaterials, private readonly blend: KonbiniColorBlend, streetLampHead: THREE.Vector3, boardLamps: { head: THREE.Vector3; target: THREE.Vector3 }[]) {
-        const parts = [
-            cone(streetLampHead, new THREE.Vector3(streetLampHead.x - 0.2, LEVEL.road, streetLampHead.z), 1.65, 1),
-            ...boardLamps.map(lamp => cone(lamp.head, lamp.target, 0.55, 0.6)),
-        ];
-        const geometry = mergeGeometries(parts, false)!;
-        parts.forEach(part => part.dispose());
+    constructor(materials: KonbiniMaterials, private readonly blend: KonbiniColorBlend, streetLampHead: THREE.Vector3) {
+        const geometry = cone(streetLampHead, new THREE.Vector3(streetLampHead.x - 0.2, LEVEL.road, streetLampHead.z), 1.65, 1);
         this.material = materials.track(new THREE.ShaderMaterial({
             vertexShader: VERTEX,
             fragmentShader: FRAGMENT,

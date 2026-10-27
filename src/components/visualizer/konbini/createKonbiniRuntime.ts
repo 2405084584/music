@@ -4,23 +4,17 @@ import type { AudioBands, Line, Theme } from '../../../types';
 import { resolveLucideIconNames } from '../../../services/lucideIconResolver';
 import { resolveThemeFontStack, resolveThemeFontWeight } from '../../../utils/fontStacks';
 import { createBaseClippingPlanes, KonbiniTraffic } from './actors/konbiniTraffic';
-import {
-    buildKonbiniLightningTimes,
-    listKonbiniDoorEvents,
-    resolveKonbiniCar,
-    resolveKonbiniLightning,
-} from './actors/konbiniSchedules';
+import { buildKonbiniLightningTimes, resolveKonbiniCar, resolveKonbiniLightning } from './actors/konbiniSchedules';
 import { KonbiniNobori } from './actors/konbiniNobori';
-import { KonbiniWalkers } from './actors/konbiniWalkers';
 import { KonbiniLightCones } from './fx/konbiniLightCones';
 import { KonbiniSteam } from './fx/konbiniSteam';
 import { buildKonbiniBase } from './geometry/base';
 import { buildKonbiniInterior, type KonbiniProductBatch } from './geometry/interior';
-import { BOARD, DEG, LEVEL, PROPS, ROAD, STORE } from './geometry/layout';
+import { BOARD, CAMERA, DEG, LEVEL, PROPS, ROAD, STORE } from './geometry/layout';
 import { buildKonbiniProps, buildKonbiniSongProps } from './geometry/props';
 import { bakeStatic, withGeometryCache, type KonbiniGeometryCache } from './geometry/shapes';
 import { buildKonbiniStore } from './geometry/store';
-import { KonbiniCamera } from './konbiniCamera';
+import { DEFAULT_VIEW, KonbiniCamera } from './konbiniCamera';
 import { KonbiniClock } from './konbiniClock';
 import {
     buildKonbiniDoorEvents,
@@ -186,7 +180,6 @@ export class KonbiniRuntime {
     private readonly signs: KonbiniSigns;
     private readonly weather: KonbiniWeather;
     private readonly traffic: KonbiniTraffic;
-    private readonly walkers: KonbiniWalkers;
     private readonly nobori: KonbiniNobori;
     private readonly lightCones: KonbiniLightCones;
     private readonly steam: KonbiniSteam;
@@ -260,7 +253,7 @@ export class KonbiniRuntime {
         this.renderer.shadowMap.type = THREE.PCFShadowMap;
         this.renderer.shadowMap.autoUpdate = false;
         this.renderer.info.autoReset = false;
-        // 车和行人从底座边缘“走出来”：它们的材质带底座的裁切面。
+        // 车从底座边缘“开出来”：车的材质带底座的裁切面。
         this.renderer.localClippingEnabled = true;
         const canvas = this.renderer.domElement;
         canvas.style.position = 'absolute';
@@ -337,14 +330,13 @@ export class KonbiniRuntime {
         this.scene.add(this.weather.group);
         const clipping = createBaseClippingPlanes();
         this.traffic = withGeometryCache(this.geometryCache, () => new KonbiniTraffic(this.materials, this.blend, clipping));
-        this.walkers = new KonbiniWalkers(this.materials, clipping);
         this.nobori = new KonbiniNobori(this.materials);
-        this.lightCones = new KonbiniLightCones(this.materials, this.blend, props.streetLampHead, store.boardLamps);
+        this.lightCones = new KonbiniLightCones(this.materials, this.blend, props.streetLampHead);
         this.steam = new KonbiniSteam(this.materials, this.blend, [
             { position: new THREE.Vector3(-2.4, LEVEL.road + 0.02, (ROAD.inner + ROAD.outer) / 2 + 0.3), puffs: 7, period: 4.4, size: 1 },
             { position: new THREE.Vector3(PROPS.roofAc[0].x - 0.12, STORE.roofTop + 0.68, PROPS.roofAc[0].z + 0.2), puffs: 5, period: 3.3, size: 0.6 },
         ]);
-        this.scene.add(this.traffic.group, this.walkers.group, this.nobori.group, this.lightCones.mesh, this.steam.mesh);
+        this.scene.add(this.traffic.group, this.nobori.group, this.lightCones.mesh, this.steam.mesh);
         this.paintNobori();
         this.reflection = new KonbiniReflection(0.06, QUALITY_STEPS[0]!.reflectionScale);
         this.wet.uniforms.uReflection.value = this.reflection.target.texture;
@@ -486,7 +478,8 @@ export class KonbiniRuntime {
         this.reflection.render(this.renderer, this.scene, camera);
         this.wet.uniforms.uReflectMatrix.value.copy(this.reflection.textureMatrix);
         const pixelWorldSize = (camera.top - camera.bottom) / camera.zoom / Math.max(1, this.size.height * this.pixelRatio);
-        const zoom = camera.zoom;
+        // 景深按相对默认构图的缩放走：默认构图下的微缩感不变，拉近时景深变浅。
+        const zoom = camera.zoom / CAMERA.zoom;
         this.post.render(pixelWorldSize, this.camera.focusDistance, this.atmosphere, {
             focusBand: 3.4 / zoom,
             focusFalloff: 7.5 / zoom,
@@ -527,23 +520,13 @@ export class KonbiniRuntime {
             this.lights.invalidateShadows();
         }
         this.lights.setLevels({ interior: 1 + 0.1 * this.chorus + 0.06 * this.doorOpenness, street: 0.75 + 0.25 * streetFlicker });
-        this.materials.setGlowLevel('spotHead', 1 + 0.35 * this.chorus);
         this.materials.setGlowLevel('neonRim', (0.75 + 0.25 * flicker) * (1 + 0.4 * this.chorus));
         const intensity = INTENSITY_SCALE[this.theme.animationIntensity] ?? 1;
         const rain = (0.62 + 0.22 * audio + 0.12 * this.chorus) * intensity;
         this.weather.update({ time: this.clock.elapsed, intensity: rain });
-        // 会动的东西：车按氛围时钟，顾客跟着开门（歌曲时间），旗随风飘，白气、光柱慢慢流。
-        const instrumental = this.song.isInstrumental || lines.length === 0;
-        // 静态模式下街上没有车和人，场景是一张定格的画。
+        // 会动的东西：车按氛围时钟，旗随风飘，白气、光柱慢慢流。静态模式下街上没有车，场景是一张定格的画。
         this.traffic.group.visible = !this.staticMode;
-        this.walkers.group.visible = !this.staticMode;
         this.traffic.update(this.clock.elapsed, this.song.seed, TRAFFIC_CHANCE[this.theme.animationIntensity] ?? 0.6);
-        this.walkers.update({
-            songTime,
-            ambientTime: this.clock.elapsed,
-            doorEvents: listKonbiniDoorEvents(this.doorEvents, songTime, this.variation, instrumental),
-            seed: this.song.seed,
-        });
         this.nobori.update(this.clock.elapsed, 0.35 + 0.65 * Math.min(1, rain));
         this.lightCones.update(this.clock.elapsed, 0.75 + 0.25 * streetFlicker);
         this.steam.update(this.clock.elapsed, this.atmosphere.wind);
@@ -690,12 +673,12 @@ export class KonbiniRuntime {
     private installDebugHook() {
         window.__konbiniDebug = {
             // 调试时窗格可能在后台、没有 requestAnimationFrame：直接同步画一帧。
-            setView: (azimuthDeg, elevationDeg, zoom = 1) => {
+            setView: (azimuthDeg, elevationDeg, zoom = CAMERA.zoom) => {
                 this.camera.placeAt({ azimuth: azimuthDeg * DEG, elevation: elevationDeg * DEG, zoom });
                 this.renderFrame(performance.now());
             },
             resetView: () => {
-                this.camera.placeAt({ azimuth: 45 * DEG, elevation: 31 * DEG, zoom: 1 });
+                this.camera.placeAt(DEFAULT_VIEW);
                 this.renderFrame(performance.now());
             },
             renderAt: (songSeconds: number, ambientSeconds?: number) => {
@@ -747,7 +730,6 @@ export class KonbiniRuntime {
         this.signs.dispose();
         this.weather.dispose();
         this.traffic.dispose();
-        this.walkers.dispose();
         this.nobori.dispose();
         this.lightCones.dispose();
         this.steam.dispose();

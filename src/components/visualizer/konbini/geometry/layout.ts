@@ -72,11 +72,13 @@ export const BOARD = {
 export const CAMERA = {
     azimuth: 45 * DEG,
     elevation: 31 * DEG,
+    /** 默认缩放：整座底座框进去是 1；默认再拉近一些，裁掉的主要是画面下沿离镜头最近的路口角。 */
+    zoom: 1.4,
     azimuthRange: 75 * DEG,
     minElevation: 20 * DEG,
     maxElevation: 70 * DEG,
     minZoom: 0.75,
-    maxZoom: 3.2,
+    maxZoom: 3.6,
     idleReturnSeconds: 8,
 } as const;
 

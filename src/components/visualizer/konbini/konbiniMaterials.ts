@@ -80,12 +80,11 @@ export const KONBINI_GLOW_ROLES = {
     fridgeGlow: { key: 'vendingLight', level: 1.5 },
     vendingGlow: { key: 'vendingLight', level: 1.7 },
     lampHead: { key: 'streetLight', level: 3.2 },
-    spotHead: { key: 'streetLight', level: 2.4 },
     warmWindow: { key: 'interiorLight', level: 0.42 },
     snackCase: { key: 'spillLight', level: 1.6 },
     screen: { key: 'led', level: 1.3 },
     redLamp: { key: 'brand0', level: 1.0 },
-    neonRim: { key: 'neon', level: 1.9 },
+    neonRim: { key: 'neon', level: 1.4 },
 } as const satisfies Record<string, { key: KonbiniColorKey; level: number }>;
 
 export type KonbiniGlowRole = keyof typeof KONBINI_GLOW_ROLES;

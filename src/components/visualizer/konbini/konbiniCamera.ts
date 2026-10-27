@@ -3,7 +3,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { BASE, BOARD, CAMERA, PROPS, STORE } from './geometry/layout';
 
 // src/components/visualizer/konbini/konbiniCamera.ts
-// 雨町的镜头：正交投影的斜俯视。默认构图按视口把整个底座（连同广告塔、电线杆的高度）框进去，并给底部字幕让出一点；
+// 雨町的镜头：正交投影的斜俯视。缩放 1 时按视口把整个底座（连同广告塔的高度）框进去，并给底部字幕让出一点；
+// 默认构图再拉近到 CAMERA.zoom，目标点往上挪，保住广告塔顶，裁掉的是画面下沿离镜头最近的路口角。
 // 可以拖拽旋转、滚轮 / 双指缩放（OrbitControls，限方位角 ±75°、俯角 20°–70°，不平移），松手约 8 秒后缓回默认构图。
 
 /** 默认构图要框进去的点：底座八个角、广告塔顶、电线杆顶、立柱灯箱顶。 */
@@ -30,6 +31,8 @@ const FRAMING_POINTS = (() => {
 const MARGIN = 0.02;
 const SUBTITLE_RESERVE = 0.05;
 const CAMERA_DISTANCE = 60;
+/** 默认缩放下装不下时，多出来的高度这么多从下沿裁（其余从上沿）。 */
+const CROP_FROM_BOTTOM = 0.85;
 
 const orbitDirection = (azimuth: number, elevation: number) => new THREE.Vector3(
     Math.sin(azimuth) * Math.cos(elevation),
@@ -43,11 +46,16 @@ export interface KonbiniView {
     zoom: number;
 }
 
+export const DEFAULT_VIEW: KonbiniView = { azimuth: CAMERA.azimuth, elevation: CAMERA.elevation, zoom: CAMERA.zoom };
+
 export class KonbiniCamera {
     readonly camera: THREE.OrthographicCamera;
     private controls: OrbitControls | null = null;
     private readonly target = new THREE.Vector3();
-    /** 默认构图：目标点与半高（缩放 1 时）。 */
+    /** 构图点投影包围盒的中心（缩放 1 时的目标点）与镜头平面的“上”方向。 */
+    private readonly fitCenter = new THREE.Vector3();
+    private readonly fitUp = new THREE.Vector3();
+    /** 默认构图：半高（缩放 1 时）。 */
     private halfHeight = 8;
     /** 构图点投影的半宽、半高（缩放 1 时）。 */
     private fitHalf = { width: 9, height: 7 };
@@ -63,7 +71,7 @@ export class KonbiniCamera {
         this.camera = new THREE.OrthographicCamera(-8, 8, 4.5, -4.5, 0.1, 200);
         this.camera.name = 'Camera';
         this.fitDefault();
-        this.placeAt({ azimuth: CAMERA.azimuth, elevation: CAMERA.elevation, zoom: 1 });
+        this.placeAt(DEFAULT_VIEW);
     }
 
     /** 按默认朝向把构图点投到镜头平面上，求目标点和半高。 */
@@ -82,18 +90,29 @@ export class KonbiniCamera {
         const centerR = (minR + maxR) / 2;
         const centerU = (minU + maxU) / 2;
         // 目标点放在投影包围盒中心（沿视线方向的位置无所谓，正交投影只看垂直于视线的平面）。
-        this.target.copy(right.multiplyScalar(centerR)).add(up.multiplyScalar(centerU));
+        this.fitUp.copy(up);
+        this.fitCenter.copy(right.multiplyScalar(centerR)).add(up.clone().multiplyScalar(centerU));
         const halfWidth = (maxR - minR) / 2;
         const halfHeight = (maxU - minU) / 2;
         this.fitHalf = { width: halfWidth, height: halfHeight };
         this.applyFrustum();
     }
 
-    /** 视口变了：按宽高比取能装下构图的半高，再给字幕让出下沿。 */
+    /**
+     * 视口变了：按宽高比取能装下构图的半高，再给字幕让出下沿。默认缩放下竖向装不下的部分大多从下沿裁，
+     * 所以目标点往上挪（只在竖向是瓶颈时；横向是瓶颈的竖屏视口竖向本来有富余）。
+     */
     private applyFrustum() {
         const usable = 1 - MARGIN * 2 - SUBTITLE_RESERVE;
         const halfHeight = Math.max(this.fitHalf.height, this.fitHalf.width / this.aspect) / usable;
         this.halfHeight = halfHeight;
+        const overflow = Math.max(0, this.fitHalf.height / usable - halfHeight / CAMERA.zoom);
+        this.target.copy(this.fitCenter).addScaledVector(this.fitUp, overflow * (CROP_FROM_BOTTOM - 0.5) * 2);
+        if (this.controls) {
+            const view = this.view();
+            this.controls.target.copy(this.target);
+            this.placeAt(view);
+        }
         const shift = halfHeight * SUBTITLE_RESERVE;
         this.camera.left = -halfHeight * this.aspect;
         this.camera.right = halfHeight * this.aspect;
@@ -122,7 +141,7 @@ export class KonbiniCamera {
 
     /** 当前视角。 */
     view(): KonbiniView {
-        this.spherical.setFromVector3(this.camera.position.clone().sub(this.target));
+        this.spherical.setFromVector3(this.camera.position.clone().sub(this.controls?.target ?? this.target));
         return { azimuth: this.spherical.theta, elevation: Math.PI / 2 - this.spherical.phi, zoom: this.camera.zoom };
     }
 
@@ -175,7 +194,7 @@ export class KonbiniCamera {
         if (this.controls) {
             if (!this.interacting && !this.returning && this.idleSince > 0 && performance.now() - this.idleSince > CAMERA.idleReturnSeconds * 1000) {
                 const view = this.view();
-                const off = Math.abs(view.azimuth - CAMERA.azimuth) + Math.abs(view.elevation - CAMERA.elevation) + Math.abs(view.zoom - 1);
+                const off = Math.abs(view.azimuth - CAMERA.azimuth) + Math.abs(view.elevation - CAMERA.elevation) + Math.abs(view.zoom - CAMERA.zoom);
                 this.returning = off > 1e-3;
                 this.idleSince = 0;
             }
@@ -185,10 +204,10 @@ export class KonbiniCamera {
                 const next = {
                     azimuth: view.azimuth + (CAMERA.azimuth - view.azimuth) * k,
                     elevation: view.elevation + (CAMERA.elevation - view.elevation) * k,
-                    zoom: view.zoom + (1 - view.zoom) * k,
+                    zoom: view.zoom + (CAMERA.zoom - view.zoom) * k,
                 };
-                const done = Math.abs(next.azimuth - CAMERA.azimuth) < 2e-4 && Math.abs(next.elevation - CAMERA.elevation) < 2e-4 && Math.abs(next.zoom - 1) < 2e-4;
-                this.placeAt(done ? { azimuth: CAMERA.azimuth, elevation: CAMERA.elevation, zoom: 1 } : next);
+                const done = Math.abs(next.azimuth - CAMERA.azimuth) < 2e-4 && Math.abs(next.elevation - CAMERA.elevation) < 2e-4 && Math.abs(next.zoom - CAMERA.zoom) < 2e-4;
+                this.placeAt(done ? DEFAULT_VIEW : next);
                 if (done) this.returning = false;
             }
             this.controls.update();

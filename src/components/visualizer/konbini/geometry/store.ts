@@ -17,10 +17,6 @@ export interface KonbiniStoreParts {
     boardFaces: { position: THREE.Vector3; rotationY: number }[];
     /** 店招的两块面：前面、右面（中心、朝向、宽高）。 */
     fasciaFaces: { position: THREE.Vector3; rotationY: number; width: number; height: number }[];
-    /** 广告塔射灯灯头（世界坐标），灯光模块按它放聚光。 */
-    boardLampHeads: THREE.Vector3[];
-    /** 广告塔射灯：灯头与它照着的字面上的点（光柱从灯头指向那里）。 */
-    boardLamps: { head: THREE.Vector3; target: THREE.Vector3 }[];
     /** 广告塔顶盖：中心、三角形（形状坐标 = (x - cx, -(z - cz))）、顶面高度。招牌模块在上面画屋顶 logo。 */
     boardLid: { center: THREE.Vector3; shape: THREE.Vector2[]; topY: number };
 }
@@ -204,7 +200,7 @@ const buildFascia = (materials: KonbiniMaterials) => {
 
 type KonbiniMaterialRole = 'brand0' | 'brand1' | 'brand2';
 
-/** 屋顶的三面广告塔：三角柱灯箱、三根立柱与斜撑、顶盖、每面两盏射灯。 */
+/** 屋顶的三面广告塔：三角柱，每面一块自发光屏幕（屏幕自己亮，不要射灯），三根立柱与斜撑、顶盖。 */
 const buildBoardTower = (materials: KonbiniMaterials) => {
     const steel = materials.toon('darkMetal');
     const trim = materials.toon('trim');
@@ -215,8 +211,6 @@ const buildBoardTower = (materials: KonbiniMaterials) => {
     const center = new THREE.Vector3(BOARD.cx, 0, BOARD.cz);
     const parts: THREE.Object3D[] = [];
     const faces: KonbiniStoreParts['boardFaces'] = [];
-    const lampHeads: THREE.Vector3[] = [];
-    const lamps: { head: THREE.Vector3; target: THREE.Vector3 }[] = [];
     const vertices: THREE.Vector3[] = [];
     for (let k = 0; k < 3; k += 1) {
         const a = BOARD.azimuth + (k * 2 * Math.PI) / 3;
@@ -227,24 +221,8 @@ const buildBoardTower = (materials: KonbiniMaterials) => {
         // 顶点在相邻两面法线的中间方向上。
         const va = a + Math.PI / 3;
         vertices.push(center.clone().add(new THREE.Vector3(Math.sin(va) * circumradius, 0, Math.cos(va) * circumradius)));
-        // 射灯：面顶上伸出的两根臂，灯头朝下照着字面。
-        const tangent = new THREE.Vector3(Math.cos(a), 0, -Math.sin(a));
-        [-0.28, 0.28].forEach(offset => {
-            const root = center.clone().addScaledVector(normal, inradius).addScaledVector(tangent, offset * W);
-            root.y = BOARD.y0 + H + 0.05;
-            const head = root.clone().addScaledVector(normal, 0.55);
-            head.y += 0.18;
-            parts.push(tubeBetween(steel, root, head, 0.018, { name: 'LampArm', castShadow: false }));
-            const lamp = mesh(roundedBox(0.2, 0.08, 0.12, 0.02), materials.glow('spotHead'), { name: 'LampHead', castShadow: false, receiveShadow: false });
-            lamp.position.copy(head);
-            lamp.rotation.y = a;
-            lamp.rotateX(0.5);
-            parts.push(lamp);
-            lampHeads.push(head);
-            lamps.push({ head: head.clone(), target: root.clone().setY(BOARD.y0 + H * 0.4).addScaledVector(normal, 0.03) });
-        });
     }
-    // 三块灯箱板：每面一块有厚度的背板，字面贴在外侧；上下沿各一根横梁。中间是空的，从上往下看得见屋顶。
+    // 三块屏幕的机箱：每面一块有厚度的背板，字面贴在外侧；上下沿各一根横梁。中间是空的，从上往下看得见屋顶。
     for (let k = 0; k < 3; k += 1) {
         const a = BOARD.azimuth + (k * 2 * Math.PI) / 3;
         const normal = new THREE.Vector3(Math.sin(a), 0, Math.cos(a));
@@ -267,7 +245,7 @@ const buildBoardTower = (materials: KonbiniMaterials) => {
         rim.rotation.y = a;
         parts.push(rim);
     }
-    // 顶盖：一块薄三角板盖住灯箱内侧，从上往下看是一块平顶，不是空心的三角。
+    // 顶盖：一块薄三角板盖住屏幕机箱内侧，从上往下看是一块平顶，不是空心的三角。
     const lidShape = new THREE.Shape();
     vertices.forEach((vertex, index) => {
         const local = vertex.clone().sub(center).multiplyScalar(1.01);
@@ -294,7 +272,7 @@ const buildBoardTower = (materials: KonbiniMaterials) => {
         const local = vertex.clone().sub(center).multiplyScalar(1.01);
         return new THREE.Vector2(local.x, -local.z);
     });
-    return { group: group('Store/BoardTower', ...parts), faces, lampHeads, lid: { center, shape: lidShapePoints, topY: lidTop }, lamps };
+    return { group: group('Store/BoardTower', ...parts), faces, lid: { center, shape: lidShapePoints, topY: lidTop } };
 };
 
 export const buildKonbiniStore = (materials: KonbiniMaterials, interior: THREE.Object3D): KonbiniStoreParts => {
@@ -316,8 +294,6 @@ export const buildKonbiniStore = (materials: KonbiniMaterials, interior: THREE.O
         doorPanels: door.panels,
         boardFaces: tower.faces,
         fasciaFaces: fascia.faces,
-        boardLampHeads: tower.lampHeads,
         boardLid: tower.lid,
-        boardLamps: tower.lamps,
     };
 };

@@ -30,7 +30,8 @@ import {
 } from './konbiniSignRaster';
 
 // src/components/visualizer/konbini/konbiniSigns.ts
-// 雨町的招牌：屋顶三面广告塔（当前行逐字点亮，换行时灯箱熄一下再亮，像荧光灯重启）、右面店招上的 LED 跑马灯
+// 雨町的招牌：屋顶三面广告屏（当前行逐字点亮；像一块户外 LED 屏：像素格、子像素、刷新带、面板玻璃反光，
+// 换行时信号切换一下）、右面店招上的 LED 跑马灯
 // （下一句 / 译文，点阵着色器横向滚动）、前面店招（主题图标 logo + 曲名当店名）、立柱灯箱、玻璃海报（歌手、专辑）、
 // 窗内霓虹图标、门口 A 字立牌（主题名）。颜色、图标、字体都从主题来；牌面贴图在换行 / 换歌 / 换主题时重画，每帧只改 uniform。
 
@@ -66,14 +67,20 @@ export interface KonbiniSignFrame {
 /** 广告塔字面贴图的尺寸（每半张）：与字面宽高比一致。 */
 const BOARD_TEXTURE_WIDTH = 1280;
 const LED_TEXTURE = { width: 4096, height: 96 };
-/** 换行时灯箱熄灭再亮起的总时长（秒）。 */
-const BOARD_SWITCH_SECONDS = 0.34;
+/** 换行时屏幕信号切换的总时长（秒）。 */
+const BOARD_SWITCH_SECONDS = 0.3;
+/** 广告屏横向的像素格数（竖向按面的宽高比取，格子是方的）。 */
+const BOARD_CELLS_X = 150;
+/** 屏幕最亮的通道压到这里：深色屏的字只轻轻碰到 bloom 门槛，亮色屏的底不进 bloom。 */
+const BOARD_PEAK = { dark: 0.95, light: 0.8 } as const;
 const BOARD_POOL_SIZE = 3;
 
 const BOARD_VERTEX = /* glsl */ `
 varying vec2 vUv;
+varying vec3 vViewNormal;
 void main() {
     vUv = uv;
+    vViewNormal = normalize(normalMatrix * normal);
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
@@ -87,19 +94,56 @@ uniform float uUnlitGain;
 uniform vec3 uRowBottom;
 uniform vec3 uReveal;
 uniform float uSoft;
+uniform vec2 uCells;
+uniform float uTime;
+uniform float uGlitch;
+uniform float uPeak;
+uniform vec3 uSheen;
 varying vec2 vUv;
+varying vec3 vViewNormal;
+float bHash(float n) { return fract(sin(n * 127.1) * 43758.5453); }
 void main() {
+    // 换行时的信号切换：几条横带错开、色散变大、亮度掉一下。
+    vec2 uv = vUv;
+    float tear = bHash(floor(vUv.y * 22.0) + floor(uTime * 24.0) * 7.0);
+    uv.x += (tear - 0.5) * 0.08 * uGlitch * step(0.62, tear);
+    // 像素格：贴图按原分辨率取（字不糊），点亮的边界对齐到格；格子小到约 2.5 个屏幕像素以下就把网格淡掉，免得出摩尔纹。
+    vec2 cellUv = vUv * uCells;
+    vec2 perPixel = fwidth(cellUv);
+    float grid = 1.0 - smoothstep(0.3, 0.55, max(perPixel.x, perPixel.y));
     float y = 1.0 - vUv.y;
-    vec4 unlit = texture2D(uMap, vec2(vUv.x, 0.5 + vUv.y * 0.5));
-    vec4 lit = texture2D(uMap, vec2(vUv.x, vUv.y * 0.5));
+    float split = 0.0008 + 0.006 * uGlitch;
+    vec4 unlit = texture2D(uMap, vec2(uv.x, 0.5 + uv.y * 0.5));
+    vec4 litR = texture2D(uMap, vec2(uv.x + split, uv.y * 0.5));
+    vec4 litG = texture2D(uMap, vec2(uv.x, uv.y * 0.5));
+    vec4 litB = texture2D(uMap, vec2(uv.x - split, uv.y * 0.5));
     float reveal = y < uRowBottom.x ? uReveal.x : (y < uRowBottom.y ? uReveal.y : uReveal.z);
-    float on = 1.0 - smoothstep(reveal - uSoft, reveal + uSoft, vUv.x);
-    // 灯箱：上沿的射灯把上半部照得亮一点，边缘一圈暗。
-    float edge = smoothstep(0.0, 0.035, vUv.x) * smoothstep(1.0, 0.965, vUv.x) * smoothstep(0.0, 0.07, vUv.y) * smoothstep(1.0, 0.93, vUv.y);
-    vec3 base = uBase * (0.78 + 0.32 * smoothstep(1.0, 0.0, y)) * (0.75 + 0.25 * edge);
+    float snapped = (floor(vUv.x * uCells.x) + 0.5) / uCells.x;
+    float on = 1.0 - smoothstep(reveal - uSoft, reveal + uSoft, mix(vUv.x, snapped, grid));
+    // 屏幕的底：边缘一圈略暗（像素老化 / 边框阴影）。
+    float edge = smoothstep(0.0, 0.03, vUv.x) * smoothstep(1.0, 0.97, vUv.x) * smoothstep(0.0, 0.06, vUv.y) * smoothstep(1.0, 0.94, vUv.y);
+    vec3 base = uBase * (0.92 + 0.08 * smoothstep(1.0, 0.0, y)) * (0.8 + 0.2 * edge);
     vec3 color = mix(base, unlit.rgb * uUnlitGain, unlit.a);
-    color = mix(color, lit.rgb * uLitGain, lit.a * on);
-    gl_FragColor = vec4(color * uBright, 1.0);
+    color = mix(color, vec3(litR.r, litG.g, litB.b) * uLitGain, vec3(litR.a, litG.a, litB.a) * on);
+    // 像素之间的黑缝与 RGB 子像素条（按格的可见度淡入淡出），平均亮度不变。
+    vec2 f = fract(cellUv) - 0.5;
+    float gap = smoothstep(0.5, 0.38, abs(f.x)) * smoothstep(0.5, 0.36, abs(f.y));
+    vec3 stripe = clamp(1.6 - abs(vec3(fract(cellUv.x) * 3.0) - vec3(0.5, 1.5, 2.5)) * 1.1, 0.0, 1.0) * 2.0;
+    vec3 mask = gap * mix(vec3(1.0), stripe, 0.35) / 0.78;
+    color *= mix(vec3(1.0), mask, grid * 0.8);
+    // 慢慢往下走的刷新带，切换时的雪花点。
+    float roll = fract(vUv.y + uTime * 0.07);
+    color *= (1.0 + 0.045 * exp(-pow((roll - 0.5) * 9.0, 2.0))) * (1.0 - 0.3 * uGlitch);
+    color += (bHash(dot(floor(cellUv), vec2(1.0, 157.0)) + floor(uTime * 30.0)) - 0.5) * 0.12 * uGlitch;
+    color = max(color * uBright, 0.0);
+    // 最亮的通道压到 uPeak（保色相）：字清楚，不被 bloom 晕开。
+    float peak = max(max(color.r, color.g), color.b);
+    color *= min(1.0, uPeak / max(peak, 1e-4));
+    // 面板玻璃：一点天光反射，侧着看更明显，再加一道斜的柔光。
+    float fresnel = pow(1.0 - clamp(vViewNormal.z, 0.0, 1.0), 3.0);
+    float glare = smoothstep(0.22, 0.0, abs(vUv.x * 0.7 + vUv.y * 0.9 - 1.05));
+    color += uSheen * (0.035 + 0.22 * fresnel + 0.05 * glare);
+    gl_FragColor = vec4(color, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
 }
@@ -217,6 +261,11 @@ export class KonbiniSigns {
                 uRowBottom: { value: new THREE.Vector3(1, 1, 1) },
                 uReveal: { value: new THREE.Vector3(0, 0, 0) },
                 uSoft: { value: 0.004 },
+                uCells: { value: new THREE.Vector2(BOARD_CELLS_X, Math.round(BOARD_CELLS_X * faceHeight / faceWidth)) },
+                uTime: { value: 0 },
+                uGlitch: { value: 0 },
+                uPeak: { value: BOARD_PEAK.dark },
+                uSheen: { value: new THREE.Color() },
             },
         }));
         this.boardMaterial.name = 'konbini:board';
@@ -446,16 +495,16 @@ export class KonbiniSigns {
         const content = this.content;
         if (!content) return;
         const palette = content.palette;
-        // 换行：前一半熄灭，换贴图，后一半带两下闪亮起来。
-        let bright = 1;
+        // 换行：信号切换——错位、色散、雪花在中间最强，贴图在峰值处换掉。
+        let glitch = 0;
         if (this.switchElapsed < BOARD_SWITCH_SECONDS) {
             this.switchElapsed += frame.staticMode ? BOARD_SWITCH_SECONDS : Math.max(frame.delta, 1 / 120);
             const t = Math.min(1, this.switchElapsed / BOARD_SWITCH_SECONDS);
-            if (t >= 0.35 && this.pendingSlot) {
+            if (t >= 0.45 && this.pendingSlot) {
                 this.applySlot(this.pendingSlot);
                 this.pendingSlot = null;
             }
-            bright = t < 0.35 ? 1 - (t / 0.35) * 0.88 : t < 0.5 ? 0.55 : t < 0.6 ? 0.25 : t < 0.75 ? 0.8 : 1;
+            glitch = t >= 1 ? 0 : Math.sin(Math.PI * t) ** 0.7;
         }
         this.chorusGlow += (frame.chorus - this.chorusGlow) * (1 - Math.exp(-frame.delta * 3));
         const layout = this.boardSlot?.layout;
@@ -464,9 +513,13 @@ export class KonbiniSigns {
         revealU.set((reveal[0] ?? 0) / this.boardBox.width, (reveal[1] ?? 0) / this.boardBox.width, (reveal[2] ?? 0) / this.boardBox.width);
         const uniforms = this.boardMaterial.uniforms;
         (uniforms.uBase!.value as THREE.Color).copy(this.blend.get('boardBase')).multiplyScalar(palette.boardIsLight ? 0.98 : 1.0);
-        uniforms.uLitGain!.value = palette.boardIsLight ? 1.0 : 1.7 + 0.5 * this.chorusGlow;
+        uniforms.uLitGain!.value = palette.boardIsLight ? 1.0 : 1.25 + 0.2 * this.chorusGlow;
         uniforms.uUnlitGain!.value = palette.boardIsLight ? 1.0 : 0.9;
-        uniforms.uBright!.value = bright * (1 + 0.06 * frame.audio + 0.12 * this.chorusGlow);
+        uniforms.uBright!.value = 1 + 0.05 * frame.audio + 0.06 * this.chorusGlow;
+        uniforms.uPeak!.value = palette.boardIsLight ? BOARD_PEAK.light : BOARD_PEAK.dark;
+        uniforms.uGlitch!.value = glitch;
+        uniforms.uTime!.value = frame.ambientTime;
+        (uniforms.uSheen!.value as THREE.Color).copy(this.blend.get('moon')).multiplyScalar(0.35);
 
         // LED：内容随牌面换，滚动速度副歌时快一点。
         if (!this.ledText && this.boardTarget) {

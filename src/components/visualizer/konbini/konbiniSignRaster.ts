@@ -119,7 +119,7 @@ export interface KonbiniBoardPaint {
     card?: boolean;
 }
 
-/** 广告塔字面：canvas 上半张是未唱的字，下半张是唱到的字（着色器按点亮位置在两者之间切）。 */
+/** 广告屏字面：canvas 上半张是未唱的字，下半张是唱到的字（着色器按点亮位置在两者之间切）。 */
 export const paintKonbiniBoard = (canvas: HTMLCanvasElement, paint: KonbiniBoardPaint) => {
     const context = context2d(canvas);
     const half = canvas.height / 2;
@@ -137,18 +137,14 @@ export const paintKonbiniBoard = (canvas: HTMLCanvasElement, paint: KonbiniBoard
             const y = row.centerY * scaleY;
             const keyword = paint.keywordRanges.find(range => glyph.offset >= range.startOffset && glyph.offset < range.endOffset);
             // 上半：未唱。
-            context.shadowBlur = 0;
             context.fillStyle = paint.card && rowIndex === 0 ? paint.lit : paint.unlit;
             context.fillText(glyph.text, x, y);
-            // 下半：唱到的字，带一点自己的光晕。
+            // 下半：唱到的字。屏幕上的字是干净的像素，不画光晕（光晕会糊字，也会被 bloom 再放大一圈）。
             const color = paint.card ? (rowIndex === 0 ? paint.lit : paint.unlit) : (keyword?.color ?? paint.lit);
-            context.shadowColor = color;
-            context.shadowBlur = px * scaleX * 0.12;
             context.fillStyle = color;
             context.fillText(glyph.text, x, y + half);
         });
     });
-    context.shadowBlur = 0;
 };
 
 export interface KonbiniFasciaPaint {
