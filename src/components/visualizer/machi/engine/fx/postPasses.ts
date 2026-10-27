@@ -328,6 +328,7 @@ uniform float uTilt;
 uniform float uAberration;
 uniform float uVignette;
 uniform float uGrain;
+uniform float uFade;
 uniform float uStars;
 uniform float uTime;
 uniform float uAspect;
@@ -366,7 +367,7 @@ void main() {
     // 颗粒：跟亮度走，暗部更细。
     float grain = gHash(vUv * vec2(1733.0, 977.0) + fract(uTime * 7.31)) - 0.5;
     color += grain * uGrain * (0.25 + dot(color, vec3(0.3333)));
-    gl_FragColor = vec4(max(color, 0.0), 1.0);
+    gl_FragColor = vec4(max(color, 0.0) * uFade, 1.0);
 }
 `;
 
@@ -381,6 +382,8 @@ export interface MachiLensSettings {
     grain: number;
     /** 晴夜的星星 0..1。 */
     stars?: number;
+    /** 换场景时整幅画面淡到黑（0）再淡回来（1）。 */
+    fade?: number;
 }
 
 /** 镜头：半分辨率高斯模糊出离焦层，按深度混合；再加色差、暗角、颗粒。 */
@@ -418,6 +421,7 @@ export class MachiLensPass extends Pass {
                 uVignette: { value: 0.55 },
                 uGrain: { value: 0.035 },
                 uStars: { value: 0 },
+                uFade: { value: 1 },
                 uTime: { value: 0 },
                 uAspect: { value: 16 / 9 },
             },
@@ -443,6 +447,7 @@ export class MachiLensPass extends Pass {
         uniforms.uVignette!.value = settings.vignette;
         uniforms.uGrain!.value = settings.grain;
         uniforms.uStars!.value = settings.stars ?? 0;
+        uniforms.uFade!.value = settings.fade ?? 1;
         uniforms.uTime!.value = time;
     }
 

@@ -1,14 +1,21 @@
 import * as THREE from 'three';
+import { MarchingCubes } from 'three/examples/jsm/objects/MarchingCubes.js';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { createVisualizerRng } from '../../../visualizerSeedHash';
 import { group, mesh } from '../../engine/geometry/shapes';
 import type { MachiMaterials } from '../../engine/materials';
 import { LEVEL, TREES } from './layout';
 
 // src/components/visualizer/machi/scenes/park/trees.ts
-// 樱花树：一根略弯、上细下粗的树干，顶上分出几根斜伸的枝，枝头一团团花（压扁一点、表面抖动过的二十面体球，
-// 三种粉色混着），树下和草地上散着落下的花瓣（一个 InstancedMesh）。都按 seed 抖一点，每首歌的树形略有不同。
+// 樱花树：一根略弯、上细下粗的树干，顶上分出几根斜伸的枝；树冠是一整块平滑的“云团”——枝头与一圈伞形的花团
+// 当成元球（MarchingCubes 在建场景时算一次等值面），并顶点后按噪声沿法线推出细碎的扇贝边，顶点色做出一簇簇深浅
+// 不一的花（亮粉、深粉、近白的花尖），底面略深。一整块曲面没有球与球之间的折痕，描边只落在轮廓上。
+// 树下和草地上散着落下的花瓣（一个 InstancedMesh）。都按 seed 抖一点，每首歌的树形略有不同。
 
-const BLOSSOM_ROLES = ['blossom', 'blossomLight', 'blossomDeep'] as const;
+/** 元球的等值面参数：subtract 越大，球之间融合得越少。 */
+const CROWN_ISOLATION = 80;
+const CROWN_SUBTRACT = 26;
+const CROWN_RESOLUTION = 44;
 
 /** 两点之间一段上下粗细不同的圆柱（树干、树枝）。 */
 const taperedBetween = (material: THREE.Material, from: THREE.Vector3, to: THREE.Vector3, r0: number, r1: number, name: string) => {
@@ -20,20 +27,102 @@ const taperedBetween = (material: THREE.Material, from: THREE.Vector3, to: THREE
     return result;
 };
 
-/** 一团花：二十面体球，顶点按噪声往外推一点，像一团蓬松的花。 */
-const blossomGeometry = (radius: number, random: () => number) => {
-    const geometry = new THREE.IcosahedronGeometry(radius, 2);
+/** 三维值噪声（0..1），树冠的起伏与花簇的深浅都用它。 */
+const hash3 = (x: number, y: number, z: number) => {
+    const h = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
+    return h - Math.floor(h);
+};
+const noise3 = (x: number, y: number, z: number) => {
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
+    const iz = Math.floor(z);
+    const fx = x - ix;
+    const fy = y - iy;
+    const fz = z - iz;
+    const ux = fx * fx * (3 - 2 * fx);
+    const uy = fy * fy * (3 - 2 * fy);
+    const uz = fz * fz * (3 - 2 * fz);
+    const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+    const corner = (dx: number, dy: number, dz: number) => hash3(ix + dx, iy + dy, iz + dz);
+    return lerp(
+        lerp(lerp(corner(0, 0, 0), corner(1, 0, 0), ux), lerp(corner(0, 1, 0), corner(1, 1, 0), ux), uy),
+        lerp(lerp(corner(0, 0, 1), corner(1, 0, 1), ux), lerp(corner(0, 1, 1), corner(1, 1, 1), ux), uy),
+        uz,
+    );
+};
+
+/** 花簇的颜色倍数（乘在材质的粉色上）：亮粉、深粉、近白的花尖。 */
+const BLOOM_LIGHT = new THREE.Color(1.08, 1.12, 1.1);
+const BLOOM_DEEP = new THREE.Color(0.95, 0.74, 0.84);
+const BLOOM_TIP = new THREE.Color(1.1, 1.2, 1.16);
+
+/**
+ * 一棵树的树冠：一组花团当元球，求一次等值面，得到一整块平滑曲面；并顶点后按噪声沿法线起伏（扇贝似的边），
+ * 再按噪声上顶点色。
+ */
+const buildCrownGeometry = (blobs: { at: THREE.Vector3; radius: number }[], scale: number, seed: number) => {
+    const min = new THREE.Vector3(Infinity, Infinity, Infinity);
+    const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+    blobs.forEach(blob => {
+        min.min(blob.at.clone().subScalar(blob.radius * 1.6));
+        max.max(blob.at.clone().addScalar(blob.radius * 1.6));
+    });
+    const center = min.clone().add(max).multiplyScalar(0.5);
+    const half = Math.max(max.x - min.x, max.y - min.y, max.z - min.z) / 2 * 1.08;
+    const scratch = new THREE.MeshBasicMaterial();
+    const cubes = new MarchingCubes(CROWN_RESOLUTION, scratch, false, false, 60000);
+    cubes.isolation = CROWN_ISOLATION;
+    cubes.reset();
+    blobs.forEach(blob => {
+        const p = blob.at.clone().sub(center).divideScalar(2 * half).addScalar(0.5);
+        const r = blob.radius / (2 * half);
+        cubes.addBall(p.x, p.y, p.z, (CROWN_ISOLATION + CROWN_SUBTRACT) * r * r, CROWN_SUBTRACT);
+    });
+    cubes.update();
+    const count = cubes.count;
+    const positions = new Float32Array(count * 3);
+    for (let index = 0; index < count * 3; index += 3) {
+        positions[index] = center.x + cubes.positionArray[index]! * half;
+        positions[index + 1] = center.y + cubes.positionArray[index + 1]! * half;
+        positions[index + 2] = center.z + cubes.positionArray[index + 2]! * half;
+    }
+    cubes.geometry.dispose();
+    scratch.dispose();
+    const soup = new THREE.BufferGeometry();
+    soup.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const geometry = mergeVertices(soup, 1e-4);
+    soup.dispose();
+    geometry.computeVertexNormals();
+    // 沿法线按噪声起伏：低频的鼓包加高频的扇贝边。
     const position = geometry.getAttribute('position') as THREE.BufferAttribute;
+    const normal = geometry.getAttribute('normal') as THREE.BufferAttribute;
     const point = new THREE.Vector3();
-    const seeds = [random() * 10, random() * 10, random() * 10];
+    const n = new THREE.Vector3();
+    const offset = seed % 97;
     for (let index = 0; index < position.count; index += 1) {
         point.fromBufferAttribute(position, index);
-        const n = Math.sin(point.x * 3.1 + seeds[0]!) * Math.sin(point.y * 2.7 + seeds[1]!) * Math.sin(point.z * 3.4 + seeds[2]!);
-        point.multiplyScalar(1 + 0.16 * n);
-        point.y *= 0.82;
+        n.fromBufferAttribute(normal, index);
+        const bump = noise3(point.x * 1.4 + offset, point.y * 1.4, point.z * 1.4) - 0.5;
+        const scallop = noise3(point.x * 5.2, point.y * 5.2 + offset, point.z * 5.2) - 0.5;
+        // 起伏要缓：太碎的小褶子会被描边 pass 当成折痕，画出一片排线。
+        point.addScaledVector(n, (bump * 0.16 + scallop * 0.035) * scale);
         position.setXYZ(index, point.x, point.y, point.z);
     }
     geometry.computeVertexNormals();
+    // 顶点色：一簇簇深浅（低频）、零星的近白花尖（高频）、底面压深一点。
+    const colors = new Float32Array(position.count * 3);
+    const color = new THREE.Color();
+    for (let index = 0; index < position.count; index += 1) {
+        point.fromBufferAttribute(position, index);
+        n.fromBufferAttribute(normal, index);
+        const cluster = noise3(point.x * 2.1, point.y * 2.1 + offset, point.z * 2.1);
+        color.copy(BLOOM_DEEP).lerp(BLOOM_LIGHT, THREE.MathUtils.smoothstep(cluster, 0.32, 0.68));
+        const tip = noise3(point.x * 8.3 + offset, point.y * 8.3, point.z * 8.3);
+        color.lerp(BLOOM_TIP, THREE.MathUtils.smoothstep(tip, 0.68, 0.82) * 0.8);
+        if (n.y < 0) color.multiplyScalar(1 + n.y * 0.14);
+        colors.set([color.r, color.g, color.b], index * 3);
+    }
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     return geometry;
 };
 
@@ -46,6 +135,9 @@ export interface SakuraParts {
 export const buildSakuraTrees = (materials: MachiMaterials, seed: string | number): SakuraParts => {
     const random = createVisualizerRng(`sakura:${seed}`);
     const bark = materials.toon('bark');
+    // 树冠只有这一种材质：粉色，顶点色乘出深浅（只有树冠用它，可以开顶点色）。
+    const blossom = materials.toon('blossom');
+    blossom.vertexColors = true;
     const trees: THREE.Object3D[] = [];
     const crowns: SakuraParts['crowns'] = [];
     TREES.forEach((tree, treeIndex) => {
@@ -70,26 +162,31 @@ export const buildSakuraTrees = (materials: MachiMaterials, seed: string | numbe
         const top = fork.clone().add(new THREE.Vector3(0, 1.7 * s, 0));
         parts.push(taperedBetween(bark, fork, top, 0.1 * s, 0.04 * s, 'Leader'));
         tips.push(top);
-        // 枝头的花团：每个枝头两三团，再在中间补几团把树冠连起来。
+        // 花团：每个枝头两三团，再在树冠中心周围铺一圈伞形的（宽、扁，外沿略往下垂），连成一整块树冠。
         const blobs: { at: THREE.Vector3; radius: number }[] = [];
         tips.forEach(tip => {
             const count = 2 + Math.floor(random() * 2);
             for (let index = 0; index < count; index += 1) {
-                const offset = new THREE.Vector3(random() - 0.5, (random() - 0.3) * 0.6, random() - 0.5).multiplyScalar(0.7 * s);
-                blobs.push({ at: tip.clone().add(offset), radius: (0.48 + random() * 0.32) * s });
+                const offset = new THREE.Vector3(random() - 0.5, (random() - 0.35) * 0.5, random() - 0.5).multiplyScalar(0.6 * s);
+                blobs.push({ at: tip.clone().add(offset), radius: (0.42 + random() * 0.22) * s });
             }
         });
-        for (let index = 0; index < 3; index += 1) {
-            const angle = random() * Math.PI * 2;
-            blobs.push({ at: fork.clone().add(new THREE.Vector3(Math.cos(angle) * 0.5 * s, (1.4 + random() * 0.5) * s, Math.sin(angle) * 0.5 * s)), radius: (0.6 + random() * 0.25) * s });
+        const crownCenter = fork.clone().add(new THREE.Vector3(0, 1.3 * s, 0));
+        const shell = 22 + Math.floor(random() * 6);
+        for (let index = 0; index < shell; index += 1) {
+            const angle = (index / shell) * Math.PI * 2 * 1.618 + random() * 0.5;
+            const rise = random();
+            const reach = (0.75 + 0.6 * (1 - rise) + random() * 0.2) * s;
+            const droop = (1 - rise) * 0.3 * s;
+            blobs.push({
+                at: crownCenter.clone().add(new THREE.Vector3(Math.cos(angle) * reach, (rise * 0.85 - 0.2) * s - droop, Math.sin(angle) * reach)),
+                radius: (0.3 + random() * 0.17) * s,
+            });
         }
-        blobs.forEach((blob, index) => {
-            const role = BLOSSOM_ROLES[(index + treeIndex + Math.floor(random() * 3)) % BLOSSOM_ROLES.length]!;
-            const ball = mesh(blossomGeometry(blob.radius, random), materials.toon(role), { name: 'Blossom' });
-            ball.position.copy(blob.at);
-            ball.rotation.y = random() * Math.PI;
-            parts.push(ball);
-        });
+        blobs.push({ at: crownCenter.clone().add(new THREE.Vector3(0, 0.45 * s, 0)), radius: 0.62 * s });
+        blobs.push({ at: crownCenter.clone(), radius: 0.7 * s });
+        const crown = mesh(buildCrownGeometry(blobs, s, treeIndex * 13 + Math.floor(random() * 50)), blossom, { name: 'Blossom' });
+        parts.push(crown);
         const center = blobs.reduce((sum, blob) => sum.add(blob.at), new THREE.Vector3()).multiplyScalar(1 / blobs.length);
         crowns.push({ center, radius: 1.5 * s });
         trees.push(group(`Sakura${treeIndex}`, ...parts));

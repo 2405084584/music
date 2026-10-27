@@ -127,6 +127,9 @@ const PREHEAT_LEAD_SECONDS = 2.5;
 const DEG = Math.PI / 180;
 /** 时间“自动”时多久看一次钟。 */
 const CLOCK_CHECK_MS = 30_000;
+/** 换场景的淡出、淡入（秒）。 */
+const SCENE_FADE_OUT = 0.18;
+const SCENE_FADE_IN = 0.32;
 
 const lerpColor = (out: THREE.Color, a: THREE.Color, b: THREE.Color, t: number) => out.copy(a).lerp(b, t);
 
@@ -171,6 +174,10 @@ export class MachiRuntime {
     private look: MachiEnvironmentLook;
     private environmentDirty = true;
     private clockTimer = 0;
+    /** 换场景的淡出淡入：画面亮度、阶段、淡出后要建的场景。 */
+    private fade = 1;
+    private fadePhase: 'idle' | 'out' | 'in' = 'idle';
+    private pendingScene: MachiSceneId | null = null;
     private readonly scratchColor = new THREE.Color();
     private readonly scratchColorB = new THREE.Color();
     private lightningTimes: number[] = [];
@@ -343,6 +350,47 @@ export class MachiRuntime {
         this.wantsFrame = true;
     }
 
+    /** 换场景：先淡出，在黑场里拆旧建新（重建那一下的卡顿藏在黑里），再淡入。预览和调试钩子直接换。 */
+    private requestScene(id: MachiSceneId, immediate = this.options.previewMode) {
+        if (immediate) {
+            this.pendingScene = null;
+            this.fadePhase = 'idle';
+            this.fade = 1;
+            this.mountScene(id);
+            this.renderer.compile(this.scene, this.camera.camera);
+            return;
+        }
+        this.pendingScene = id;
+        this.fadePhase = 'out';
+        this.wantsFrame = true;
+        this.wake();
+    }
+
+    /** 推进淡出淡入（真实时间，暂停时也走完）；淡到黑时建新场景。 */
+    private stepFade(delta: number) {
+        const step = Math.min(delta, 1 / 30);
+        if (this.fadePhase === 'out') {
+            this.fade = Math.max(0, this.fade - step / SCENE_FADE_OUT);
+            if (this.fade === 0) {
+                const id = this.pendingScene;
+                this.pendingScene = null;
+                if (id) {
+                    this.mountScene(id);
+                    this.renderer.compile(this.scene, this.camera.camera);
+                }
+                this.fadePhase = 'in';
+            }
+        } else if (this.fadePhase === 'in') {
+            this.fade = Math.min(1, this.fade + step / SCENE_FADE_IN);
+            if (this.fade === 1) this.fadePhase = 'idle';
+        }
+    }
+
+    /** 正在画的场景，或淡出后马上要换上的场景。 */
+    private get targetSceneId() {
+        return this.pendingScene ?? this.stageId;
+    }
+
     private readonly onContextLost = (event: Event) => {
         event.preventDefault();
         console.warn('[Machi] WebGL context lost, rebuilding the runtime');
@@ -436,7 +484,7 @@ export class MachiRuntime {
         if (this.disposed) return;
         this.renderFrame(now);
         const animating = !this.clock.paused;
-        if (animating || this.camera.busy || this.stage.busy || this.wantsFrame || this.environmentMoving) {
+        if (animating || this.camera.busy || this.stage.busy || this.wantsFrame || this.environmentMoving || this.fadePhase !== 'idle') {
             this.raf = requestAnimationFrame(this.frame);
         }
     };
@@ -454,6 +502,7 @@ export class MachiRuntime {
         }
         this.lastFrameAt = now;
 
+        this.stepFade(this.clock.realDelta);
         this.camera.update(this.clock.realDelta);
         this.stepEnvironment(this.clock.realDelta);
         if (this.blend.step(this.clock.realDelta) || this.environmentDirty) {
@@ -482,6 +531,7 @@ export class MachiRuntime {
             aberration: 0.014,
             vignette: 0.55,
             grain: 0.032,
+            fade: this.fade,
         });
         this.adaptQuality(now);
         this.lastCalls = this.renderer.info.render.calls;
@@ -630,10 +680,9 @@ export class MachiRuntime {
         // 天气“自动”按歌选：换歌可能换天气（渐变过去）。
         this.refreshEnvironmentTarget();
         const sceneId = resolveMachiSceneId(this.tuning, song.seed);
-        if (sceneId !== this.stageId || (seedChanged && this.stage.rebuildsForSeed)) {
-            this.mountScene(sceneId);
-            this.renderer.compile(this.scene, this.camera.camera);
-        } else {
+        if (sceneId !== this.targetSceneId || (seedChanged && this.stage.rebuildsForSeed)) {
+            this.requestScene(sceneId);
+        } else if (!this.pendingScene) {
             const palette = resolveMachiPalette(this.theme, song.seed, MACHI_SCENES[sceneId].resolveArt);
             this.blend.setTarget(palette, this.staticMode);
             this.stage.swapSong(song, this.sceneContent(palette));
@@ -665,10 +714,7 @@ export class MachiRuntime {
         if (previous.scene === tuning.scene && previous.timeOfDay === tuning.timeOfDay && previous.weather === tuning.weather) return;
         this.tuning = tuning;
         const sceneId = resolveMachiSceneId(tuning, this.song.seed);
-        if (sceneId !== this.stageId) {
-            this.mountScene(sceneId);
-            this.renderer.compile(this.scene, this.camera.camera);
-        }
+        if (sceneId !== this.targetSceneId) this.requestScene(sceneId);
         this.refreshEnvironmentTarget();
     }
 
@@ -717,6 +763,8 @@ export class MachiRuntime {
             },
             nextCar: from => this.stage.nextCar?.(from, this.song.seed, TRAFFIC_CHANCE[this.theme.animationIntensity] ?? 0.6) ?? null,
             setTuning: (patch, transition = false) => {
+                const sceneId = resolveMachiSceneId({ ...this.tuning, ...patch }, this.song.seed);
+                if (!transition && sceneId !== this.targetSceneId) this.requestScene(sceneId, true);
                 this.setTuning({ ...this.tuning, ...patch });
                 if (!transition) this.refreshEnvironmentTarget(true);
                 this.renderFrame(performance.now());

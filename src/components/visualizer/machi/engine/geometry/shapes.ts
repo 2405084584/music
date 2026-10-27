@@ -141,12 +141,12 @@ export const group = (name: string, ...children: THREE.Object3D[]) => {
     return result;
 };
 
-/** 统一成 position / normal / uv 三个属性的非索引几何，才能合在一起。 */
+/** 统一成 position / normal / uv（有顶点色的再加 color）的非索引几何，才能合在一起。 */
 const normalizeForMerge = (geometry: THREE.BufferGeometry, matrix: THREE.Matrix4) => {
     const result = geometry.index ? geometry.toNonIndexed() : geometry.clone();
     result.applyMatrix4(matrix);
     Object.keys(result.attributes).forEach(name => {
-        if (name !== 'position' && name !== 'normal' && name !== 'uv') result.deleteAttribute(name);
+        if (name !== 'position' && name !== 'normal' && name !== 'uv' && name !== 'color') result.deleteAttribute(name);
     });
     if (!result.attributes.normal) result.computeVertexNormals();
     if (!result.attributes.uv) {
@@ -191,6 +191,14 @@ export const bakeStatic = (root: THREE.Object3D) => {
             if (bucket.parts.length < 2) {
                 bucket.parts.forEach(part => part.dispose());
                 return;
+            }
+            // 同一桶里有的带顶点色、有的不带：不带的补白色，属性才对得齐。
+            if (bucket.parts.some(part => part.attributes.color)) {
+                bucket.parts.forEach(part => {
+                    if (part.attributes.color) return;
+                    const count = part.attributes.position!.count;
+                    part.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(count * 3).fill(1), 3));
+                });
             }
             const merged = mergeGeometries(bucket.parts, false);
             bucket.parts.forEach(part => part.dispose());
