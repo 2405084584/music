@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 import type { MachiPalette } from './palette';
+import { injectMachiSnow, type MachiSnowUniforms } from './snow';
 
 // src/components/visualizer/machi/engine/materials.ts
 // 町景的材质：克制的卡通着色（MeshToonMaterial + 4 阶渐变图），自发光件（招牌、灯头、冰柜内光）用 MeshBasicMaterial
 // 输出高于 1 的线性色给 bloom 一点余量。颜色都从调色板来，换主题时由 MachiColorBlend 插值过去再写回材质。
 // 引擎一份 MachiMaterials（地面、天气、后处理用的），每个场景建自己的一份（场景拆掉时一起销毁），共用一个 ColorBlend。
+// 卡通材质都注入了积雪（snow.ts），共用一组积雪 uniform。
 
 /** 调色板摊平后的键：调色板里的单色键、三色条、8 个商品色，加上场景自己的颜色（art）。 */
 export type MachiColorKey = string;
@@ -60,8 +62,21 @@ export class MachiColorBlend {
         return true;
     }
 
-    get(key: MachiColorKey): THREE.Color {
+    /** 由环境推出来的颜色（天空、天光随时间与天气变）盖在调色板的同名键上；raw 读调色板本身的值。 */
+    private readonly derived = new Map<MachiColorKey, THREE.Color>();
+
+    setDerived(key: MachiColorKey, color: THREE.Color) {
+        const held = this.derived.get(key);
+        if (held) held.copy(color);
+        else this.derived.set(key, color.clone());
+    }
+
+    raw(key: MachiColorKey): THREE.Color {
         return this.current.get(key) ?? this.current.get('concrete')!;
+    }
+
+    get(key: MachiColorKey): THREE.Color {
+        return this.derived.get(key) ?? this.raw(key);
     }
 }
 
@@ -95,7 +110,7 @@ export class MachiMaterials {
     private readonly extra: THREE.Material[] = [];
 
     /** prefix 是材质名前缀：场景的材质带场景 id，调试时看得出是谁的。 */
-    constructor(private readonly blend: MachiColorBlend, private readonly prefix = 'machi') {
+    constructor(private readonly blend: MachiColorBlend, private readonly snow: MachiSnowUniforms, private readonly prefix = 'machi') {
         this.glass = new THREE.MeshToonMaterial({
             color: blend.get('glass'),
             gradientMap: this.gradient,
@@ -104,18 +119,25 @@ export class MachiMaterials {
             depthWrite: false,
         });
         this.glass.name = `${prefix}:glass`;
-        this.product = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: this.gradient });
+        this.product = this.snowy(new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: this.gradient }));
         this.product.name = `${prefix}:product`;
+    }
+
+    /** 给卡通材质注入积雪（外面另建的卡通材质也可以用，比如车身）。 */
+    snowy<T extends THREE.MeshToonMaterial>(material: T): T {
+        material.onBeforeCompile = shader => injectMachiSnow(shader, this.snow);
+        material.customProgramCacheKey = () => 'machi-snow';
+        return material;
     }
 
     /** 按调色板颜色键上色的卡通材质（'white' 是纯白，不跟主题走）。 */
     toon(key: MachiColorKey): THREE.MeshToonMaterial {
         let material = this.toons.get(key);
         if (!material) {
-            material = new THREE.MeshToonMaterial({
+            material = this.snowy(new THREE.MeshToonMaterial({
                 color: key === 'white' ? 0xffffff : this.blend.get(key),
                 gradientMap: this.gradient,
-            });
+            }));
             material.name = `${this.prefix}:${key}`;
             this.toons.set(key, material);
         }

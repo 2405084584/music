@@ -4,9 +4,10 @@ import { FullScreenQuad, Pass } from 'three/examples/jsm/postprocessing/Pass.js'
 // src/components/visualizer/machi/engine/fx/postPasses.ts
 // 町景后处理的三道自定义 pass：
 // - 氛围（MachiAtmospherePass）：深度拉普拉斯墨线；由深度还原世界坐标，画贴地的薄雾（随风漂的噪声，靠近店门和路灯时
-//   被灯染暖，像光在雾里散开）；天空像素上画慢慢漂的云和闪电。
+//   被灯染暖，像光在雾里散开），雾天再按深度蒙一层灰；天空像素上画慢慢漂的云（云量随天气）和闪电。
 // - 光条（MachiStreakPass）：亮处在四分之一分辨率上只做横向模糊，叠回去成为横向的镜头光条（变形宽银幕镜头那种）。
-// - 镜头（MachiLensPass）：按深度离焦的微缩景深（半分辨率模糊再混合）、边缘色差、暗角、胶片颗粒。
+// - 镜头（MachiLensPass）：按深度离焦的微缩景深（半分辨率模糊再混合）、边缘色差、暗角、胶片颗粒；晴夜的星星画在
+//   景深之后（天空离焦最远，先画的话会被模糊掉）。
 // 三道都只用全屏四边形，额外的贴图都在低分辨率上。
 
 const FULLSCREEN_VERTEX = /* glsl */ `
@@ -73,6 +74,9 @@ uniform vec3 uGlowColorA;
 uniform vec4 uGlowB;
 uniform vec3 uGlowColorB;
 uniform vec3 uCloudColor;
+uniform float uCloudAmount;
+uniform float uHaze;
+uniform vec2 uHazeRange;
 uniform float uLightning;
 uniform vec3 uLightningColor;
 uniform float uAspect;
@@ -100,10 +104,11 @@ void main() {
     if (sky) {
         // 天空：两层慢慢漂的云，闪电时从云里亮起来。
         vec2 p = vec2(vUv.x * uAspect, vUv.y) * 2.4 + vec2(uTime * 0.012, 0.0);
-        float cloud = smoothstep(0.42, 0.85, pFbm(p)) * smoothstep(0.0, 0.55, vUv.y);
-        float wisp = smoothstep(0.55, 0.9, pFbm(p * 2.3 + vec2(uTime * 0.02, 3.1)));
+        float cloud = smoothstep(mix(0.62, 0.38, uCloudAmount), 0.85, pFbm(p)) * smoothstep(0.0, 0.55, vUv.y) * (0.35 + 0.65 * uCloudAmount);
+        float wisp = smoothstep(0.55, 0.9, pFbm(p * 2.3 + vec2(uTime * 0.02, 3.1))) * (0.5 + 0.5 * uCloudAmount);
         rgb += uCloudColor * (cloud * 0.55 + wisp * 0.18);
         rgb += uLightningColor * uLightning * (0.18 + 1.1 * cloud + 0.4 * wisp);
+        rgb = mix(rgb, uMistColor, uHaze * 0.7);
     } else {
         // 还原世界坐标，画贴地的雾。
         vec4 ndc = vec4(vUv * 2.0 - 1.0, raw * 2.0 - 1.0, 1.0);
@@ -120,6 +125,8 @@ void main() {
             + uGlowColorA * exp(-dot(da, da) / (uGlowA.w * uGlowA.w)) * exp(-height / 2.2)
             + uGlowColorB * exp(-dot(db, db) / (uGlowB.w * uGlowB.w)) * exp(-height / 3.0);
         rgb = mix(rgb, lit, clamp(density, 0.0, 0.85));
+        // 雾天：离镜头越远越灰。
+        rgb = mix(rgb, uMistColor, uHaze * (0.3 + 0.7 * smoothstep(uHazeRange.x, uHazeRange.y, d)));
         rgb += rgb * uLightning * 0.18;
     }
     gl_FragColor = vec4(rgb, color.a);
@@ -153,6 +160,9 @@ export class MachiAtmospherePass extends Pass {
                 uGlowB: { value: new THREE.Vector4(0, 0, 0, 1.8) },
                 uGlowColorB: { value: new THREE.Color() },
                 uCloudColor: { value: new THREE.Color() },
+                uCloudAmount: { value: 1 },
+                uHaze: { value: 0 },
+                uHazeRange: { value: new THREE.Vector2(50, 70) },
                 uLightning: { value: 0 },
                 uLightningColor: { value: new THREE.Color(0xc9d8ff) },
                 uAspect: { value: 16 / 9 },
@@ -318,6 +328,7 @@ uniform float uTilt;
 uniform float uAberration;
 uniform float uVignette;
 uniform float uGrain;
+uniform float uStars;
 uniform float uTime;
 uniform float uAspect;
 varying vec2 vUv;
@@ -338,6 +349,16 @@ void main() {
     float coc = smoothstep(uFocusBand, uFocusBand + uFocusFalloff, abs(depth - uFocus)) * uDof;
     coc = max(coc, smoothstep(0.2, 0.55, abs(vUv.y - 0.5)) * uTilt);
     vec3 color = mix(sharp, blurred, clamp(coc, 0.0, 1.0));
+    // 晴夜的星星：天空像素上格子里稀疏的亮点，各自慢慢闪。
+    if (uStars > 0.001 && texture2D(tDepth, vUv).x > 0.9999) {
+        vec2 sp = vec2(vUv.x * uAspect, vUv.y) * 140.0;
+        vec2 cell = floor(sp);
+        float starSeed = gHash(cell);
+        vec2 starAt = vec2(gHash(cell + 3.7), gHash(cell + 9.1)) * 0.6 + 0.2;
+        float star = step(0.984, starSeed) * smoothstep(0.24, 0.0, length(fract(sp) - starAt))
+            * (0.55 + 0.45 * sin(uTime * (0.8 + starSeed * 3.0) + starSeed * 60.0));
+        color += vec3(0.85, 0.9, 1.0) * star * uStars * 1.3 * smoothstep(0.1, 0.55, vUv.y);
+    }
     // 暗角。
     vec2 v = centered * vec2(uAspect, 1.0);
     float vignette = smoothstep(1.15, 0.35, length(v) * 1.15);
@@ -358,6 +379,8 @@ export interface MachiLensSettings {
     aberration: number;
     vignette: number;
     grain: number;
+    /** 晴夜的星星 0..1。 */
+    stars?: number;
 }
 
 /** 镜头：半分辨率高斯模糊出离焦层，按深度混合；再加色差、暗角、颗粒。 */
@@ -394,6 +417,7 @@ export class MachiLensPass extends Pass {
                 uAberration: { value: 0.012 },
                 uVignette: { value: 0.55 },
                 uGrain: { value: 0.035 },
+                uStars: { value: 0 },
                 uTime: { value: 0 },
                 uAspect: { value: 16 / 9 },
             },
@@ -418,6 +442,7 @@ export class MachiLensPass extends Pass {
         uniforms.uAberration!.value = settings.aberration;
         uniforms.uVignette!.value = settings.vignette;
         uniforms.uGrain!.value = settings.grain;
+        uniforms.uStars!.value = settings.stars ?? 0;
         uniforms.uTime!.value = time;
     }
 

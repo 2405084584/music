@@ -275,26 +275,31 @@ class KonbiniScene implements MachiScene {
         const { songTime, ambientTime, chorus, staticMode } = frame;
         if (frame.targetChanged) this.signs.showBoard(frame.target, frame.lines, frame.immediate, frame.showText);
         else if (frame.preheat) this.signs.preheat(frame.preheat, frame.lines, frame.showText);
+        const { environment, look } = frame;
         const streetFlicker = staticMode ? 1 : resolveMachiFlicker(ambientTime + 3.1, `${frame.seed}:street`, 0.45);
+        // 白天店里的灯弱下去，路灯熄掉；光柱、地上的光斑、雾里的灯跟着。
+        const street = look.streetLamps * (0.75 + 0.25 * streetFlicker);
         const openness = resolveKonbiniDoorOpenness(this.doorEvents, songTime, this.variation, this.song.isInstrumental || frame.lines.length === 0);
         if (Math.abs(openness - this.doorOpenness) > 1e-4) {
             this.doorOpenness = openness;
             this.context.invalidateShadows();
         }
-        const interiorLevel = 1 + 0.1 * chorus + 0.06 * this.doorOpenness;
-        this.lights.setLevels({ interior: interiorLevel, street: 0.75 + 0.25 * streetFlicker });
-        this.context.materials.setGlowLevel('neonRim', (0.75 + 0.25 * frame.flicker) * (1 + 0.4 * chorus));
+        const interiorLevel = (1 + 0.1 * chorus + 0.06 * this.doorOpenness) * look.artificial;
+        this.lights.setLevels({ interior: interiorLevel, street, pools: 1 - 0.85 * environment.daylight });
+        this.context.materials.setGlowLevel('neonRim', (0.75 + 0.25 * frame.flicker) * (1 + 0.4 * chorus) * look.artificial);
+        this.context.materials.setGlowLevel('lampHead', 0.15 + 0.85 * look.streetLamps);
         // 会动的东西：车按氛围时钟，旗随风飘，白气、光柱慢慢流。静态模式下街上没有车，场景是一张定格的画。
         this.traffic.group.visible = !staticMode;
         this.traffic.update(ambientTime, frame.seed, frame.trafficChance);
         this.nobori.update(ambientTime, 0.35 + 0.65 * Math.min(1, frame.rain));
-        this.lightCones.update(ambientTime, 0.75 + 0.25 * streetFlicker);
+        this.lightCones.update(ambientTime, street * (1 - 0.6 * environment.daylight));
         this.steam.update(ambientTime, frame.atmosphere.wind);
         const atmosphere = frame.atmosphere;
         atmosphere.glowA.copy(this.glowA);
         atmosphere.glowB.copy(this.glowB);
-        atmosphere.glowColorA.copy(this.context.blend.get('interiorLight')).multiplyScalar(0.55 * interiorLevel);
-        atmosphere.glowColorB.copy(this.context.blend.get('streetLight')).multiplyScalar(0.42 * (0.75 + 0.25 * streetFlicker));
+        const night = 1 - 0.85 * environment.daylight;
+        atmosphere.glowColorA.copy(this.context.blend.get('interiorLight')).multiplyScalar(0.55 * interiorLevel * night);
+        atmosphere.glowColorB.copy(this.context.blend.get('streetLight')).multiplyScalar(0.42 * street * night);
         this.signs.update({
             songTime,
             ambientTime,

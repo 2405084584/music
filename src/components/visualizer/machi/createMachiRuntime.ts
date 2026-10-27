@@ -15,6 +15,19 @@ import {
     sameBoardTarget,
     type MachiBoardTarget,
 } from './engine/director';
+import {
+    createMachiEnvironmentState,
+    MACHI_DAYLIGHT,
+    resolveMachiDaylight,
+    resolveMachiEnvironmentLook,
+    resolveMachiEnvironmentTarget,
+    resolveMachiWeatherKind,
+    sameMachiEnvironment,
+    stepMachiEnvironment,
+    type MachiEnvironmentLook,
+    type MachiEnvironmentState,
+    type MachiEnvironmentTarget,
+} from './engine/environment';
 import { MachiGround } from './engine/fx/ground';
 import { MachiPost, type MachiAtmosphereFrame } from './engine/fx/post';
 import { MachiReflection } from './engine/fx/reflection';
@@ -23,6 +36,7 @@ import { MachiColorBlend, MachiMaterials } from './engine/materials';
 import { resolveMachiPalette } from './engine/palette';
 import { MachiSky } from './engine/sky';
 import { MachiSkyLights } from './engine/skyLights';
+import { createMachiSnowUniforms, setMachiSnowRoofs } from './engine/snow';
 import { resolveMachiSceneId } from './machiTuning';
 import { MACHI_SCENES } from './scenes';
 import type { MachiScene, MachiSceneContent, MachiSceneContext } from './scenes/types';
@@ -30,7 +44,8 @@ import type { MachiSceneId, MachiTuning } from './types';
 
 // src/components/visualizer/machi/createMachiRuntime.ts
 // 町景的运行时：一个 WebGL 上下文，建一次；换歌、换主题、换设置、暂停都就地推给它（外壳用 useVisualizerPixiHost 托管）。
-// 引擎管渲染器、镜头、天光、天气、湿地面、倒影、后处理、时钟和编排（牌面、副歌、闪烁、闪电、音频）；场景（scenes/）
+// 引擎管渲染器、镜头、天光、天气、湿地面、倒影、后处理、时钟、编排（牌面、副歌、闪烁、闪电、音频）和环境（时间与天气：
+// 设置 → 目标，按真实时间渐变过去，天空、天光、人造光、雨雪、路面干湿、积雪、bloom 都跟着它）；场景（scenes/）
 // 管自己的几何、灯、招牌和会动的东西。换场景只拆旧场景、建新场景，上下文和后处理留着。
 // 自己的 requestAnimationFrame 循环：暂停时只在镜头还在动、颜色还在插值、或外面要求补一帧时出帧，其余时间不跑。
 // 每帧的时间只从 currentTime（歌词）和 MachiClock（氛围）读，不进 React。
@@ -110,6 +125,10 @@ const SIGN_REPAINT_DEBOUNCE_MS = 150;
 /** 提前多久把下一行画好。 */
 const PREHEAT_LEAD_SECONDS = 2.5;
 const DEG = Math.PI / 180;
+/** 时间“自动”时多久看一次钟。 */
+const CLOCK_CHECK_MS = 30_000;
+
+const lerpColor = (out: THREE.Color, a: THREE.Color, b: THREE.Color, t: number) => out.copy(a).lerp(b, t);
 
 interface MachiDebugHook {
     setView: (azimuthDeg: number, elevationDeg: number, zoom?: number) => void;
@@ -117,8 +136,9 @@ interface MachiDebugHook {
     renderAt: (songSeconds: number, ambientSeconds?: number) => void;
     /** 从氛围时间 from 往后找下一辆开到路中间的车，返回那一刻的氛围时间。 */
     nextCar: (from: number) => number | null;
-    /** 改设置（场景、时间、天气），同步画一帧。 */
-    setTuning: (patch: Partial<MachiTuning>) => void;
+    /** 改设置（场景、时间、天气），环境直接跳到目标（不渐变），同步画一帧。 */
+    setTuning: (patch: Partial<MachiTuning>, transition?: boolean) => void;
+    environment: () => MachiEnvironmentState;
     stats: () => Record<string, number | string>;
     runtime: MachiRuntime;
 }
@@ -145,6 +165,14 @@ export class MachiRuntime {
     private stageContext!: MachiSceneContext;
     private stageId!: MachiSceneId;
     private weather!: MachiWeather;
+    private readonly snow = createMachiSnowUniforms();
+    private environmentTarget: MachiEnvironmentTarget;
+    private environment: MachiEnvironmentState;
+    private look: MachiEnvironmentLook;
+    private environmentDirty = true;
+    private clockTimer = 0;
+    private readonly scratchColor = new THREE.Color();
+    private readonly scratchColorB = new THREE.Color();
     private lightningTimes: number[] = [];
     private quality = 0;
     private qualityCheckedAt = 0;
@@ -159,6 +187,9 @@ export class MachiRuntime {
         mistColor: new THREE.Color(),
         mistAmount: 0.2,
         cloudColor: new THREE.Color(),
+        cloudAmount: 1,
+        stars: 0,
+        haze: 0,
         lightning: 0,
         glowA: new THREE.Vector4(),
         glowColorA: new THREE.Color(),
@@ -221,9 +252,12 @@ export class MachiRuntime {
 
         const sceneId = resolveMachiSceneId(options.tuning, options.song.seed);
         this.blend = new MachiColorBlend(resolveMachiPalette(options.theme, options.song.seed, MACHI_SCENES[sceneId].resolveArt));
-        this.materials = new MachiMaterials(this.blend);
+        this.materials = new MachiMaterials(this.blend, this.snow);
         this.lightningTimes = buildMachiLightningTimes(options.song.lines);
-        this.ground = new MachiGround(this.materials, this.blend);
+        this.environmentTarget = this.resolveEnvironmentTarget();
+        this.environment = createMachiEnvironmentState(this.environmentTarget);
+        this.look = resolveMachiEnvironmentLook(this.environment);
+        this.ground = new MachiGround(this.materials, this.blend, this.snow);
         this.skyLights = new MachiSkyLights(this.blend, options.previewMode ? 1024 : 2048);
         this.scene.add(this.skyLights.group);
         this.reflection = new MachiReflection(0.06, QUALITY_STEPS[0]!.reflectionScale);
@@ -243,6 +277,7 @@ export class MachiRuntime {
         this.resize(options.host.clientWidth, options.host.clientHeight);
 
         this.clock.paused = this.paused || this.staticMode;
+        this.clockTimer = window.setInterval(this.onClockCheck, CLOCK_CHECK_MS);
         // 第一帧在 create 里画好：着色器编译是起步最慢的一段，换样式的过渡等它（firstFrame.ts）。
         this.renderer.compile(this.scene, this.camera.camera);
         this.renderFrame(performance.now());
@@ -274,7 +309,7 @@ export class MachiRuntime {
         this.blend.setTarget(palette, !this.stage || this.staticMode);
         this.stageId = id;
         this.stageContext = {
-            materials: new MachiMaterials(this.blend, id),
+            materials: new MachiMaterials(this.blend, this.snow, id),
             blend: this.blend,
             geometryCache: new Map(),
             song: this.song,
@@ -288,13 +323,20 @@ export class MachiRuntime {
         this.ground.uniforms.uPuddleOffset.value.set(stage.puddles.offset[0], stage.puddles.offset[1]);
         this.ground.uniforms.uPuddleAmount.value = stage.puddles.amount;
         this.scene.add(stage.root);
-        this.weather = new MachiWeather(this.stageContext.materials, this.blend, stage.weather, this.options.previewMode ? { rain: 800, splash: 160 } : { rain: 2000, splash: 560 });
+        this.weather = new MachiWeather(
+            this.stageContext.materials,
+            this.blend,
+            stage.weather,
+            this.options.previewMode ? { rain: 800, splash: 160, snow: 500 } : { rain: 2000, splash: 560, snow: 1400 },
+        );
         this.scene.add(this.weather.group);
+        setMachiSnowRoofs(this.snow, stage.weather.roofs);
         this.atmosphere.wind.set(Math.sin(stage.weather.windYaw), Math.cos(stage.weather.windYaw)).multiplyScalar(0.06);
         this.reflection.planeY = stage.reflectionPlaneY;
         this.camera.setFraming(stage.framing);
         stage.setContent(this.sceneContent(palette));
         this.boardTarget = null;
+        this.environmentDirty = true;
         this.syncColors();
         this.skyLights.invalidateShadows();
         this.wantsFrame = true;
@@ -344,8 +386,31 @@ export class MachiRuntime {
         console.info(`[Machi] frame time ${average.toFixed(1)} ms, quality step ${this.quality}`);
     }
 
+    /**
+     * 天空、天光、月光 / 太阳的颜色按环境推：夜、黄昏、白天三套之间插值（换时间时经过黄昏，像日落日出），
+     * 阴天往灰里拉，积雪时地面反上来的光更亮。结果盖在调色板的同名键上（MachiColorBlend.setDerived）。
+     */
+    private applyEnvironmentColors() {
+        const { daylight, snowCover } = this.environment;
+        const { overcast } = this.look;
+        const color = this.scratchColor;
+        const other = this.scratchColorB;
+        const dusk = MACHI_DAYLIGHT.dusk;
+        (['skyTop', 'skyBottom', 'hemiSky', 'hemiGround', 'moon'] as const).forEach(key => {
+            if (daylight <= dusk) lerpColor(color, this.blend.raw(key), this.blend.raw(`${key}Dusk`), daylight / dusk);
+            else lerpColor(color, this.blend.raw(`${key}Dusk`), this.blend.raw(`${key}Day`), (daylight - dusk) / (1 - dusk));
+            // 阴天：去饱和、白天略提亮（一片灰白的天），夜里压暗一点。
+            const luminance = color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
+            other.setRGB(luminance, luminance, luminance).multiplyScalar(key === 'moon' ? 1 : 0.9 + 0.35 * daylight);
+            color.lerp(other, overcast * (key === 'moon' ? 0.45 : 0.7));
+            if (key === 'hemiGround') color.lerp(other.setRGB(0.55, 0.6, 0.7).multiplyScalar(0.35 + 0.65 * daylight), snowCover * 0.5);
+            this.blend.setDerived(key, color);
+        });
+    }
+
     /** 插值后的颜色写回材质、灯、天空、场景。 */
     private syncColors() {
+        this.applyEnvironmentColors();
         this.materials.syncColors();
         this.skyLights.sync();
         this.sky.paint(this.blend.get('skyTop'), this.blend.get('skyBottom'));
@@ -370,7 +435,7 @@ export class MachiRuntime {
         if (this.disposed) return;
         this.renderFrame(now);
         const animating = !this.clock.paused;
-        if (animating || this.camera.busy || this.stage.busy || this.wantsFrame) {
+        if (animating || this.camera.busy || this.stage.busy || this.wantsFrame || this.environmentMoving) {
             this.raf = requestAnimationFrame(this.frame);
         }
     };
@@ -389,7 +454,9 @@ export class MachiRuntime {
         this.lastFrameAt = now;
 
         this.camera.update(this.clock.realDelta);
-        if (this.blend.step(this.clock.realDelta)) {
+        this.stepEnvironment(this.clock.realDelta);
+        if (this.blend.step(this.clock.realDelta) || this.environmentDirty) {
+            this.environmentDirty = false;
             this.syncColors();
             this.wantsFrame = true;
         }
@@ -398,8 +465,11 @@ export class MachiRuntime {
         this.renderer.info.reset();
         if (this.skyLights.moon.shadow.needsUpdate) this.renderer.shadowMap.needsUpdate = true;
         const camera = this.camera.camera;
-        this.reflection.render(this.renderer, this.scene, camera);
-        this.ground.uniforms.uReflectMatrix.value.copy(this.reflection.textureMatrix);
+        // 干的路面不映倒影：省掉倒影那一遍。
+        if (this.environment.wetness > 0.02) {
+            this.reflection.render(this.renderer, this.scene, camera);
+            this.ground.uniforms.uReflectMatrix.value.copy(this.reflection.textureMatrix);
+        }
         const pixelWorldSize = (camera.top - camera.bottom) / camera.zoom / Math.max(1, this.size.height * this.pixelRatio);
         // 景深按相对默认构图的缩放走：默认构图下的微缩感不变，拉近时景深变浅。
         const zoom = camera.zoom / this.camera.defaultView.zoom;
@@ -416,6 +486,52 @@ export class MachiRuntime {
         this.lastCalls = this.renderer.info.render.calls;
         this.lastTriangles = this.renderer.info.render.triangles;
         this.camera.rendered();
+    }
+
+    /** 设置 + 歌（自动天气按 seed）+ 本地时钟（自动时间）→ 环境目标。 */
+    private resolveEnvironmentTarget(): MachiEnvironmentTarget {
+        return resolveMachiEnvironmentTarget(
+            resolveMachiDaylight(this.tuning.timeOfDay, new Date()),
+            resolveMachiWeatherKind(this.tuning.weather, this.song.seed),
+        );
+    }
+
+    /** 目标变了（设置、换歌、钟走到了黄昏）：静态模式直接跳过去，否则渐变。 */
+    private refreshEnvironmentTarget(immediate = this.staticMode) {
+        this.environmentTarget = this.resolveEnvironmentTarget();
+        if (immediate) {
+            this.environment = createMachiEnvironmentState(this.environmentTarget);
+            this.look = resolveMachiEnvironmentLook(this.environment);
+            this.skyLights.invalidateShadows();
+        }
+        this.environmentDirty = true;
+        this.wantsFrame = true;
+        this.wake();
+    }
+
+    private readonly onClockCheck = () => {
+        if (this.tuning.timeOfDay !== 'auto' || this.disposed) return;
+        const daylight = resolveMachiDaylight('auto', new Date());
+        if (Math.abs(daylight - this.environmentTarget.daylight) > 1e-3) this.refreshEnvironmentTarget();
+    };
+
+    /** 环境按真实时间追目标（暂停时也走完，设置改了能看到结果）；没在变就什么都不做。 */
+    private stepEnvironment(delta: number) {
+        const next = stepMachiEnvironment(this.environment, this.environmentTarget, Math.min(delta, 0.1));
+        if (sameMachiEnvironment(next, this.environment)) return;
+        this.environment = next;
+        this.look = resolveMachiEnvironmentLook(next);
+        this.environmentDirty = true;
+        // 太阳停下来了：按最终的方向补一次阴影。
+        if (next.daylight === this.environmentTarget.daylight) this.skyLights.settleShadows();
+    }
+
+    /** 环境还在渐变：暂停时也要继续出帧。 */
+    private get environmentMoving() {
+        const target = this.environmentTarget;
+        const state = this.environment;
+        return state.daylight !== target.daylight || state.rain !== target.rain || state.snow !== target.snow || state.fog !== target.fog
+            || state.wetness !== Math.max(target.rain, target.fog * 0.35) || state.snowCover !== target.snow;
     }
 
     /** 按歌曲时间决定牌面、副歌、闪电；按氛围时钟决定闪烁；音频包络平滑；场景推一步。 */
@@ -438,18 +554,40 @@ export class MachiRuntime {
         const audio = this.clock.paused ? this.audio.step(0, 0) : this.audio.step(this.options.audioPower.get(), this.clock.delta);
         const flicker = this.staticMode ? 1 : resolveMachiFlicker(this.clock.elapsed, this.song.seed);
         const intensity = INTENSITY_SCALE[this.theme.animationIntensity] ?? 1;
-        const rain = (0.62 + 0.22 * audio + 0.12 * this.chorus) * intensity;
-        this.weather.update({ time: this.clock.elapsed, intensity: rain });
-        const lightning = this.staticMode ? 0 : resolveMachiLightning(this.lightningTimes, songTime);
-        this.skyLights.setFlash(lightning);
+        const environment = this.environment;
+        const look = this.look;
+        const rain = environment.rain * (0.62 + 0.22 * audio + 0.12 * this.chorus) * intensity;
+        const camera = this.camera.camera;
+        this.weather.update({
+            time: this.clock.elapsed,
+            rain,
+            snow: environment.snow * (0.75 + 0.25 * intensity),
+            wetness: environment.wetness,
+            glint: 1 - 0.9 * environment.daylight,
+            pixelsPerUnit: (this.size.height * this.pixelRatio) / ((camera.top - camera.bottom) / camera.zoom),
+        });
+        // 闪电只在下雨时有。
+        const lightning = this.staticMode || environment.rain < 0.5 ? 0 : resolveMachiLightning(this.lightningTimes, songTime) * environment.rain;
+        this.skyLights.update({ daylight: environment.daylight, sunIntensity: look.sunIntensity, hemiIntensity: look.hemiIntensity, flash: lightning });
+        this.post.setGlow(look.bloom, look.streaks);
         const atmosphere = this.atmosphere;
         atmosphere.lightning = lightning;
         atmosphere.time = this.clock.elapsed;
-        atmosphere.mistColor.copy(this.blend.get('skyBottom')).multiplyScalar(1.35);
-        atmosphere.mistAmount = 0.16 + 0.12 * Math.min(1, rain);
-        atmosphere.cloudColor.copy(this.blend.get('skyBottom')).lerp(this.blend.get('moon'), 0.25).multiplyScalar(0.7);
+        const skyBottom = this.blend.get('skyBottom');
+        atmosphere.mistColor.copy(skyBottom).multiplyScalar(1.35 - 0.4 * environment.daylight);
+        atmosphere.mistAmount = look.mist + 0.06 * Math.min(1, rain);
+        // 云：夜里是天色里带一点月光，白天是偏白的云，阴天更灰。
+        lerpColor(this.scratchColor, skyBottom, this.blend.get('moon'), 0.25).multiplyScalar(0.7);
+        this.scratchColorB.copy(skyBottom).lerp(new THREE.Color(1, 1, 1), 0.55 - 0.25 * look.overcast).multiplyScalar(0.55);
+        atmosphere.cloudColor.copy(this.scratchColor).lerp(this.scratchColorB, environment.daylight);
+        atmosphere.cloudAmount = look.clouds;
+        atmosphere.stars = look.stars;
+        atmosphere.haze = look.haze;
         this.ground.uniforms.uTime.value = this.clock.elapsed;
-        this.ground.uniforms.uRain.value = Math.min(1, 0.45 + 0.5 * rain);
+        this.ground.uniforms.uRain.value = environment.rain > 0.02 ? Math.min(1, 0.45 + 0.5 * rain) : 0;
+        this.ground.uniforms.uWet.value = environment.wetness;
+        this.snow.uMachiSnow.value = environment.snowCover;
+        this.snow.uMachiViewUp.value.set(0, 1, 0).transformDirection(camera.matrixWorldInverse);
         this.stage.direct({
             songTime,
             ambientTime: this.clock.elapsed,
@@ -467,6 +605,8 @@ export class MachiRuntime {
             flicker,
             rain,
             trafficChance: TRAFFIC_CHANCE[this.theme.animationIntensity] ?? 0.6,
+            environment,
+            look,
             atmosphere,
         });
     }
@@ -483,6 +623,8 @@ export class MachiRuntime {
     swapSong(song: MachiSongContext) {
         this.song = song;
         this.lightningTimes = buildMachiLightningTimes(song.lines);
+        // 天气“自动”按歌选：换歌可能换天气（渐变过去）。
+        this.refreshEnvironmentTarget();
         const sceneId = resolveMachiSceneId(this.tuning, song.seed);
         if (sceneId !== this.stageId) {
             this.mountScene(sceneId);
@@ -512,7 +654,7 @@ export class MachiRuntime {
         this.wake();
     }
 
-    /** 设置变了：场景不同就换场景（时间与天气在下一步接上）。 */
+    /** 设置变了：场景不同就换场景；时间、天气渐变到新目标。 */
     setTuning(tuning: MachiTuning) {
         const previous = this.tuning;
         if (previous.scene === tuning.scene && previous.timeOfDay === tuning.timeOfDay && previous.weather === tuning.weather) return;
@@ -522,8 +664,7 @@ export class MachiRuntime {
             this.mountScene(sceneId);
             this.renderer.compile(this.scene, this.camera.camera);
         }
-        this.wantsFrame = true;
-        this.wake();
+        this.refreshEnvironmentTarget();
     }
 
     setPaused(paused: boolean) {
@@ -534,6 +675,7 @@ export class MachiRuntime {
 
     setStaticMode(staticMode: boolean) {
         this.staticMode = staticMode;
+        if (staticMode) this.refreshEnvironmentTarget(true);
         this.clock.paused = this.paused || this.staticMode;
         this.wake();
     }
@@ -569,14 +711,18 @@ export class MachiRuntime {
                 this.renderFrame(performance.now());
             },
             nextCar: from => this.stage.nextCar?.(from, this.song.seed, TRAFFIC_CHANCE[this.theme.animationIntensity] ?? 0.6) ?? null,
-            setTuning: patch => {
+            setTuning: (patch, transition = false) => {
                 this.setTuning({ ...this.tuning, ...patch });
+                if (!transition) this.refreshEnvironmentTarget(true);
                 this.renderFrame(performance.now());
             },
+            environment: () => ({ ...this.environment }),
             stats: () => {
                 const average = this.frameTimes.length ? this.frameTimes.reduce((sum, value) => sum + value, 0) / this.frameTimes.length : 0;
                 return {
                     scene: this.stageId,
+                    daylight: Math.round(this.environment.daylight * 100) / 100,
+                    weather: resolveMachiWeatherKind(this.tuning.weather, this.song.seed),
                     calls: this.lastCalls,
                     triangles: this.lastTriangles,
                     geometries: this.renderer.info.memory.geometries,
@@ -596,6 +742,7 @@ export class MachiRuntime {
         this.disposed = true;
         this.stopLoop();
         window.clearTimeout(this.signRepaintTimer);
+        window.clearInterval(this.clockTimer);
         this.resizeObserver.disconnect();
         this.camera.dispose();
         const canvas = this.renderer.domElement;

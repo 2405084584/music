@@ -3,6 +3,7 @@ import type { Line, Theme } from '../../../../types';
 import type { MachiSongContext } from '../createMachiRuntime';
 import type { MachiCameraFraming } from '../engine/camera';
 import type { MachiBoardTarget } from '../engine/director';
+import type { MachiEnvironmentLook, MachiEnvironmentState } from '../engine/environment';
 import type { MachiAtmosphereFrame } from '../engine/fx/post';
 import type { MachiWeatherLayout } from '../engine/fx/weather';
 import type { MachiGeometryCache } from '../engine/geometry/shapes';
@@ -61,6 +62,9 @@ export interface MachiSceneFrame {
     rain: number;
     /** 每个窗口有车开过的概率。 */
     trafficChance: number;
+    /** 时间与天气此刻的状态（渐变中的），和由它推出的灯光标量（人造光、路灯……）。 */
+    environment: MachiEnvironmentState;
+    look: MachiEnvironmentLook;
     /** 后处理的氛围参数：场景填雾里的两处灯（位置与颜色）。 */
     atmosphere: MachiAtmosphereFrame;
 }

@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 import type { MachiColorBlend, MachiMaterials } from '../materials';
+import { injectMachiSnow, type MachiSnowUniforms } from '../snow';
 
 // src/components/visualizer/machi/engine/fx/ground.ts
 // 湿路面：沥青和人行道顶面换成注入了水洼的卡通材质。水洼位置是按 seed 平移的两层值噪声；水洼里压暗底色、
 // 映出天空色与倒影贴图（按雨点涟漪的法线扰动），水洼外只有一层弱的湿润反光。涟漪是格子里随机生灭的圆环，
-// 只用氛围时钟，暂停时定格。所有湿面共用一组 uniform。
+// 只用氛围时钟，暂停时定格。所有湿面共用一组 uniform。湿度（uWet）随天气变：干的时候没有水洼、没有反光；
+// 积雪时雪盖住路面（与卡通材质同一段积雪着色），水洼也被盖住。
 
 export interface MachiGroundUniforms {
     uTime: { value: number };
@@ -13,6 +15,8 @@ export interface MachiGroundUniforms {
     uPuddleOffset: { value: THREE.Vector2 };
     uPuddleAmount: { value: number };
     uRain: { value: number };
+    /** 路面湿度 0..1（雨停后慢慢干）。 */
+    uWet: { value: number };
     uSky: { value: THREE.Color };
     uReflectStrength: { value: number };
 }
@@ -24,6 +28,7 @@ uniform mat4 uReflectMatrix;
 uniform vec2 uPuddleOffset;
 uniform float uPuddleAmount;
 uniform float uRain;
+uniform float uWet;
 uniform vec3 uSky;
 uniform float uReflectStrength;
 uniform float uPuddleBias;
@@ -62,13 +67,14 @@ vec3 kRippleLayer(vec2 p, float scale, float t, float salt) {
 const OUTPUT = /* glsl */ `
 {
     vec2 kp = vKWorld.xz;
-    float puddle = kPuddle(kp);
+    // 干的时候没有水洼；积雪盖住水洼。
+    float puddle = kPuddle(kp) * smoothstep(0.15, 0.85, uWet) * (1.0 - min(1.0, uMachiSnow * 1.5));
     vec3 ripple = kRippleLayer(kp, 2.3, uTime, 0.0) + kRippleLayer(kp, 3.9, uTime * 1.13, 19.0) * 0.7;
     vec4 rc = uReflectMatrix * vec4(vKWorld, 1.0);
     vec2 ruv = rc.xy / rc.w + ripple.xy * mix(0.004, 0.018, puddle);
     vec3 reflection = texture2D(uReflection, ruv).rgb;
     // 水洼：压暗、映天空、映倒影；水洼外：湿润的一层弱反光。
-    vec3 wet = outgoingLight * 0.78 + reflection * uReflectStrength * 0.16;
+    vec3 wet = outgoingLight * mix(1.0, 0.78, uWet) + reflection * uReflectStrength * 0.16 * uWet;
     vec3 pool = outgoingLight * 0.42 + uSky * 0.18 + reflection * uReflectStrength + ripple.z * uSky * 0.6;
     outgoingLight = mix(wet, pool, puddle);
 }
@@ -82,6 +88,7 @@ export class MachiGround {
         uPuddleOffset: { value: new THREE.Vector2() },
         uPuddleAmount: { value: 0.6 },
         uRain: { value: 0.75 },
+        uWet: { value: 1 },
         uSky: { value: new THREE.Color() },
         uReflectStrength: { value: 0.75 },
     };
@@ -90,7 +97,7 @@ export class MachiGround {
 
     private readonly gradient: THREE.Texture;
 
-    constructor(materials: MachiMaterials, private readonly blend: MachiColorBlend) {
+    constructor(materials: MachiMaterials, private readonly blend: MachiColorBlend, private readonly snow: MachiSnowUniforms) {
         this.gradient = materials.gradient;
         this.asphalt = materials.track(this.create('asphalt', 0));
         this.concrete = materials.track(this.create('concrete', 0.08));
@@ -100,6 +107,7 @@ export class MachiGround {
         const material = new THREE.MeshToonMaterial({ color: this.blend.get(key), gradientMap: this.gradient });
         material.name = `machi:wet:${key}`;
         material.onBeforeCompile = shader => {
+            injectMachiSnow(shader, this.snow);
             Object.assign(shader.uniforms, this.uniforms, { uPuddleBias: { value: puddleBias } });
             shader.vertexShader = shader.vertexShader
                 .replace('#include <common>', '#include <common>\nvarying vec3 vKWorld;')

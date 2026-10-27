@@ -41,6 +41,8 @@ export interface KonbiniLightLevels {
     interior: number;
     /** 路灯（偶尔闪一下）。 */
     street: number;
+    /** 地上的光斑（白天被日光盖掉）。 */
+    pools: number;
 }
 
 export class KonbiniLights {
@@ -51,7 +53,7 @@ export class KonbiniLights {
     private readonly vending: THREE.PointLight;
     private readonly pools: THREE.Mesh[] = [];
     private readonly poolMaterials: { material: THREE.MeshBasicMaterial; key: 'spillLight' | 'streetLight' | 'vendingLight'; level: number }[] = [];
-    private levels: KonbiniLightLevels = { interior: 1, street: 1 };
+    private levels: KonbiniLightLevels = { interior: 1, street: 1, pools: 1 };
     private readonly stripTexture = createPoolTexture(false);
     private readonly roundTexture = createPoolTexture(true);
 
@@ -113,14 +115,14 @@ export class KonbiniLights {
     }
 
     setLevels(levels: KonbiniLightLevels) {
-        if (levels.interior === this.levels.interior && levels.street === this.levels.street) return;
+        if (levels.interior === this.levels.interior && levels.street === this.levels.street && levels.pools === this.levels.pools) return;
         this.levels = levels;
         this.sync();
     }
 
     /** 颜色（插值后的）与亮度写回灯和光斑。 */
     sync() {
-        const { interior, street } = this.levels;
+        const { interior, street, pools } = this.levels;
         this.interior.forEach((light, index) => {
             light.color.copy(this.blend.get('interiorLight'));
             light.intensity = (index === 0 ? 9 : 8) * interior;
@@ -133,7 +135,7 @@ export class KonbiniLights {
         this.street.intensity = 26 * street;
         this.vending.color.copy(this.blend.get('vendingLight'));
         this.poolMaterials.forEach(({ material, key, level }) => {
-            const scale = key === 'streetLight' ? street : key === 'spillLight' ? interior : 1;
+            const scale = (key === 'streetLight' ? street : key === 'spillLight' ? interior : 1) * pools;
             material.color.copy(this.blend.get(key)).multiplyScalar(level * scale);
         });
     }

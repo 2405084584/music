@@ -19,12 +19,23 @@ import { hashVisualizerSeed } from '../../visualizerSeedHash';
 // 纯函数，颜色都是 #rrggbb；运行时把它们插值到材质和灯上。
 
 export interface MachiPalette {
+    /** 夜里的天空、天光（半球光的天与地）、月光；黄昏（Dusk）与白天（Day）各一套，运行时按时间在三套之间插值。 */
     skyTop: string;
     skyBottom: string;
     fog: string;
     hemiSky: string;
     hemiGround: string;
     moon: string;
+    skyTopDusk: string;
+    skyBottomDusk: string;
+    hemiSkyDusk: string;
+    hemiGroundDusk: string;
+    moonDusk: string;
+    skyTopDay: string;
+    skyBottomDay: string;
+    hemiSkyDay: string;
+    hemiGroundDay: string;
+    moonDay: string;
     asphalt: string;
     roadPaint: string;
     concrete: string;
@@ -108,6 +119,16 @@ const ART = {
     hemiSky: '#3a4b6c',
     hemiGround: '#141923',
     moon: '#9cb3dc',
+    skyTopDusk: '#2c2f5c',
+    skyBottomDusk: '#e58a62',
+    hemiSkyDusk: '#8b79a6',
+    hemiGroundDusk: '#30262a',
+    moonDusk: '#ffae78',
+    skyTopDay: '#4d8bd4',
+    skyBottomDay: '#cde4f2',
+    hemiSkyDay: '#bcd6ee',
+    hemiGroundDay: '#5f5b52',
+    moonDay: '#fff0da',
     interiorLight: '#ffc887',
     streetLight: '#ffe4b8',
     vendingLight: '#d4ebff',
@@ -225,6 +246,16 @@ export const resolveMachiPalette = (theme: Theme, seed: string | number, resolve
         hemiSky: tintDark(ART.hemiSky, background),
         hemiGround: ART.hemiGround,
         moon: ART.moon,
+        skyTopDusk: tintDark(ART.skyTopDusk, background),
+        skyBottomDusk: ART.skyBottomDusk,
+        hemiSkyDusk: ART.hemiSkyDusk,
+        hemiGroundDusk: ART.hemiGroundDusk,
+        moonDusk: ART.moonDusk,
+        skyTopDay: tintDark(ART.skyTopDay, background),
+        skyBottomDay: ART.skyBottomDay,
+        hemiSkyDay: ART.hemiSkyDay,
+        hemiGroundDay: ART.hemiGroundDay,
+        moonDay: ART.moonDay,
         asphalt: tintDark(ART.asphalt, background),
         roadPaint: ART.roadPaint,
         concrete: tintDark(ART.concrete, background),

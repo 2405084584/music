@@ -27,6 +27,10 @@ export interface MachiAtmosphereFrame {
     mistColor: THREE.Color;
     mistAmount: number;
     cloudColor: THREE.Color;
+    /** 云量 0..1（晴天少，阴雨雾雪多）、晴夜的星星、雾天整体的灰。 */
+    cloudAmount: number;
+    stars: number;
+    haze: number;
     lightning: number;
     /** 雾里的两处灯：xyz 位置、半径，颜色已乘好亮度。 */
     glowA: THREE.Vector4;
@@ -43,6 +47,10 @@ export class MachiPost {
     private readonly bloom: UnrealBloomPass;
     private readonly streaks: MachiStreakPass;
     private readonly lens: MachiLensPass;
+    private bloomAllowed: boolean;
+    private streaksAllowed: boolean;
+    private bloomStrength = 0.5;
+    private streakStrength = 0.55;
 
     constructor(
         private readonly renderer: THREE.WebGLRenderer,
@@ -64,9 +72,11 @@ export class MachiPost {
         this.atmosphere = new MachiAtmospherePass(this.scene);
         this.composer.addPass(this.atmosphere);
         this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.5, 0.62, 0.86);
+        this.bloomAllowed = options.bloom;
         this.bloom.enabled = options.bloom;
         this.composer.addPass(this.bloom);
         this.streaks = new MachiStreakPass();
+        this.streaksAllowed = options.streaks;
         this.streaks.enabled = options.streaks;
         this.composer.addPass(this.streaks);
         this.lens = new MachiLensPass(this.scene);
@@ -82,9 +92,25 @@ export class MachiPost {
     }
 
     setQuality(options: Pick<MachiPostOptions, 'bloom' | 'streaks' | 'dof'>) {
-        this.bloom.enabled = options.bloom;
-        this.streaks.enabled = options.streaks;
+        this.bloomAllowed = options.bloom;
+        this.streaksAllowed = options.streaks;
         this.lens.dofEnabled = options.dof;
+        this.applyGlow();
+    }
+
+    /** 光晕的强度随环境走：夜里 bloom 与横向光条明显，白天几乎没有（为 0 时整道 pass 跳过）。 */
+    setGlow(bloom: number, streaks: number) {
+        if (bloom === this.bloomStrength && streaks === this.streakStrength) return;
+        this.bloomStrength = bloom;
+        this.streakStrength = streaks;
+        this.applyGlow();
+    }
+
+    private applyGlow() {
+        this.bloom.strength = this.bloomStrength;
+        this.bloom.enabled = this.bloomAllowed && this.bloomStrength > 0.005;
+        this.streaks.strength = this.streakStrength;
+        this.streaks.enabled = this.streaksAllowed && this.streakStrength > 0.005;
     }
 
     /**
@@ -103,13 +129,16 @@ export class MachiPost {
         (uniforms.uMistColor!.value as THREE.Color).copy(atmosphere.mistColor);
         uniforms.uMistAmount!.value = atmosphere.mistAmount;
         (uniforms.uCloudColor!.value as THREE.Color).copy(atmosphere.cloudColor);
+        uniforms.uCloudAmount!.value = atmosphere.cloudAmount;
+        uniforms.uHaze!.value = atmosphere.haze;
+        (uniforms.uHazeRange!.value as THREE.Vector2).set(focusDistance - camera.near - 8, focusDistance - camera.near + 14);
         uniforms.uLightning!.value = atmosphere.lightning;
         (uniforms.uGlowA!.value as THREE.Vector4).copy(atmosphere.glowA);
         (uniforms.uGlowColorA!.value as THREE.Color).copy(atmosphere.glowColorA);
         (uniforms.uGlowB!.value as THREE.Vector4).copy(atmosphere.glowB);
         (uniforms.uGlowColorB!.value as THREE.Color).copy(atmosphere.glowColorB);
         (uniforms.uWind!.value as THREE.Vector2).copy(atmosphere.wind);
-        this.lens.configure({ ...lens, focus: focusDistance - camera.near }, range, atmosphere.time);
+        this.lens.configure({ ...lens, focus: focusDistance - camera.near, stars: atmosphere.stars }, range, atmosphere.time);
         this.renderer.setRenderTarget(this.scene.target);
         this.renderer.clear();
         this.renderer.render(this.sceneGraph, camera);
