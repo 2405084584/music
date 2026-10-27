@@ -87,6 +87,8 @@ export interface MachiScene {
     syncColors(): void;
     /** 场景里有动画在走（换牌面）：暂停时也要继续出帧。 */
     readonly busy: boolean;
+    /** 换了一首 seed 不同的歌时整个场景重建（车位、车色这些建场景时按 seed 定死的东西）。 */
+    readonly rebuildsForSeed?: boolean;
     /** 调试钩子用：从氛围时间 from 往后找下一辆开到路中间的车。 */
     nextCar?(from: number, seed: string | number, chance: number): number | null;
     dispose(): void;

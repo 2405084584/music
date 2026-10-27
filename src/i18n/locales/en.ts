@@ -2821,6 +2821,7 @@ export default {
     "machiSceneHint": "Auto picks a scene for each song; the same song always gets the same one.",
     "machiSceneAuto": "Auto",
     "machiSceneKonbini": "Konbini",
+    "machiSceneStation": "Gas station",
     "machiSkySection": "Time and weather",
     "machiTimeOfDay": "Time of day",
     "machiTimeOfDayHint": "Auto follows your local clock: day, dusk or night.",

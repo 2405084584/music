@@ -2821,6 +2821,7 @@ export default {
     "machiSceneHint": "Tự động chọn một cảnh cho mỗi bài hát; cùng một bài luôn ra cùng một cảnh.",
     "machiSceneAuto": "Tự động",
     "machiSceneKonbini": "Konbini",
+    "machiSceneStation": "Trạm xăng",
     "machiSkySection": "Thời gian và thời tiết",
     "machiTimeOfDay": "Thời gian",
     "machiTimeOfDayHint": "Tự động theo đồng hồ của bạn: ban ngày, hoàng hôn hoặc ban đêm.",

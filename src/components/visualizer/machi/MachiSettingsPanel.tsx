@@ -22,6 +22,7 @@ export const MACHI_SCENE_CHOICES: MachiTuning['scene'][] = ['auto', ...MACHI_SCE
 export const MACHI_SCENE_LABEL_KEYS: Record<MachiTuning['scene'], string> = {
     auto: 'options.machiSceneAuto',
     konbini: 'options.machiSceneKonbini',
+    station: 'options.machiSceneStation',
 };
 
 export const MACHI_TIME_LABEL_KEYS: Record<MachiTimeOfDay, string> = {
@@ -58,6 +59,16 @@ const SCENE_GLYPHS: Record<MachiTuning['scene'], React.ReactNode> = {
             <path d="M7 11V7.5h7V11" opacity="0.6" />
             <path d="M9.5 20v-4.5h3V20" opacity="0.6" />
             <path d="M3 20h18" />
+        </>
+    ),
+    // 加油站：罩棚、一台加油机，旁边停着一辆车
+    station: (
+        <>
+            <path d="M3 8h13" />
+            <path d="M5 8v12M14 8v12" opacity="0.6" />
+            <path d="M8 20v-6h3v6" />
+            <path d="M15 20v-3.5l1.5-2h4.5v5.5" opacity="0.7" />
+            <path d="M3 20h19" />
         </>
     ),
 };

@@ -621,13 +621,15 @@ export class MachiRuntime {
     }
 
     swapSong(song: MachiSongContext) {
+        const seedChanged = song.seed !== this.song.seed;
         this.song = song;
         this.lightningTimes = buildMachiLightningTimes(song.lines);
         // 天气“自动”按歌选：换歌可能换天气（渐变过去）。
         this.refreshEnvironmentTarget();
         const sceneId = resolveMachiSceneId(this.tuning, song.seed);
-        if (sceneId !== this.stageId) {
+        if (sceneId !== this.stageId || (seedChanged && this.stage.rebuildsForSeed)) {
             this.mountScene(sceneId);
+            this.renderer.compile(this.scene, this.camera.camera);
         } else {
             const palette = resolveMachiPalette(this.theme, song.seed, MACHI_SCENES[sceneId].resolveArt);
             this.blend.setTarget(palette, this.staticMode);

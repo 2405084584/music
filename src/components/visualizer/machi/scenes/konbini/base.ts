@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { MachiMaterials } from '../../engine/materials';
 import { BASE, LEVEL, ROAD } from './layout';
+import { buildMachiPlinth, machiSurface as surface } from '../../engine/geometry/plinth';
 import { boxSpan, group, mesh, roundedBox } from '../../engine/geometry/shapes';
 
 // src/components/visualizer/machi/scenes/konbini/base.ts
@@ -14,36 +15,6 @@ export interface KonbiniBaseParts {
     roadSurface: THREE.Mesh;
     lotSurfaces: THREE.Mesh[];
 }
-
-const SURFACE_LIFT = 0.002;
-
-/** 沿 x 或 z 的一片平板顶面。 */
-const surface = (material: THREE.Material, x0: number, x1: number, z0: number, z1: number, y: number, name: string) => {
-    const geometry = new THREE.PlaneGeometry(x1 - x0, z1 - z0, 1, 1);
-    geometry.rotateX(-Math.PI / 2);
-    const result = mesh(geometry, material, { name, castShadow: false, receiveShadow: true, dynamic: true });
-    result.position.set((x0 + x1) / 2, y + SURFACE_LIFT, (z0 + z1) / 2);
-    return result;
-};
-
-/** 台座：三层土石加一圈深色底框，四角圆。 */
-const buildPlinth = (materials: MachiMaterials) => {
-    const size = BASE.half * 2;
-    const layers = [
-        { role: 'plinthTop' as const, y0: -0.1, y1: 0, inset: 0 },
-        { role: 'plinthMid' as const, y0: -0.3, y1: -0.1, inset: 0.012 },
-        { role: 'plinthLow' as const, y0: -0.52, y1: -0.3, inset: 0.006 },
-    ];
-    const parts = layers.map(layer => {
-        const width = size - layer.inset * 2;
-        const part = mesh(roundedBox(width, layer.y1 - layer.y0, width, BASE.radius, 3), materials.toon(layer.role), { name: `Plinth/${layer.role}` });
-        part.position.set(0, (layer.y0 + layer.y1) / 2, 0);
-        return part;
-    });
-    const trim = mesh(roundedBox(size + 0.08, 0.1, size + 0.08, BASE.radius + 0.04, 3), materials.toon('plinthTrim'), { name: 'Plinth/trim' });
-    trim.position.set(0, -BASE.depth + 0.05, 0);
-    return group('Base/Plinth', ...parts, trim);
-};
 
 /** 店前场地与路对面人行道：抬高的混凝土板，四边是路缘石。 */
 const buildLots = (materials: MachiMaterials) => {
@@ -165,7 +136,7 @@ export const buildKonbiniBase = (materials: MachiMaterials): KonbiniBaseParts =>
     surfaces.userData.dynamic = true;
     const base = group(
         'Base',
-        buildPlinth(materials),
+        buildMachiPlinth(materials),
         buildLots(materials),
         buildRoadPaint(materials),
         buildRoadFixtures(materials),

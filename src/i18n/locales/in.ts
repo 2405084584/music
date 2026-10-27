@@ -2821,6 +2821,7 @@ export default {
     "machiSceneHint": "Otomatis memilih adegan untuk tiap lagu; lagu yang sama selalu mendapat adegan yang sama.",
     "machiSceneAuto": "Otomatis",
     "machiSceneKonbini": "Konbini",
+    "machiSceneStation": "Pom bensin",
     "machiSkySection": "Waktu dan cuaca",
     "machiTimeOfDay": "Waktu",
     "machiTimeOfDayHint": "Otomatis mengikuti jam lokal: siang, senja, atau malam.",

@@ -248,7 +248,7 @@ Visualizer 消费已解析的 `LyricData` / `Line` / `Word`，不负责解析 `.
 
 ### Machi
 
-町景（实验）：three.js 程序化生成的日式小镇微缩模型（约 12m×12m 底座，正交斜俯视），歌词是场景里的招牌、屏幕。设置里选场景（目前是便利店街角）、时间、天气，三项都可以“自动”。不挂共享背景（`background: false`），天空自己画。快速定位：
+町景（实验）：three.js 程序化生成的日式小镇微缩模型（约 12m×12m 底座，正交斜俯视），歌词是场景里的招牌、屏幕。底座与路面薄板共用 `engine/geometry/plinth.ts`。设置里选场景（便利店街角、加油站停车场）、时间、天气，三项都可以“自动”。不挂共享背景（`background: false`），天空自己画。快速定位：
 
 - `machi/VisualizerMachi.tsx`：React 外壳 / 字幕；运行时用 `pixi/pixiRuntimeHost.ts` 的 `useVisualizerPixiHost` 托管（与渲染器无关），建一次，换歌、换主题、换设置、暂停、静态模式就地推给它；WebGL 上下文丢了换一个 epoch 重建
 - `machi/tuning.ts` + `types.ts` + `machiTuning.ts` + `MachiSettingsPanel.tsx`：tuning（`machi_tuning`：场景 / 时间 / 天气，都可以 `auto`；“自动”场景按 seed 选，`resolveMachiSceneId`），设置面板（场景用线稿小图，不放实时预览）与快捷控件的三个轮换胶囊
@@ -267,6 +267,7 @@ Visualizer 消费已解析的 `LyricData` / `Line` / `Word`，不负责解析 `.
   - `geometry/shapes.ts`：圆角盒、管线、命名 Group；`bakeStatic` 建完后按材质合批，重复物用 InstancedMesh
 - `machi/scenes/`：`types.ts` 是场景与引擎的约定（`MachiSceneDefinition` 的 `resolveArt` / `create`，`MachiScene` 每帧 `direct(frame)`），`index.ts` 是场景表
   - `konbini/`：便利店街角。`layout.ts` 尺寸表、`base.ts` 底座与路、`store.ts` 店身与三面广告屏、`interior.ts` 店内、`props.ts` 街边道具与按歌变的 `SongProps`、`konbiniSigns.ts` + `konbiniSignPaint.ts` 招牌、`konbiniLights.ts` 店内光 / 路灯 / 地面光斑、`konbiniDoor.ts` 段落开头开自动门（`../paragraphStructure.ts`）、`konbiniSeed.ts` 按 seed 变自行车、伞、风向、水洼、`konbiniScene.ts` 把它们装起来。场景里不放人物
+  - `station/`：加油站停车场（默认镜头从正前偏右 25° 看，高的罩棚和货车放后排，前排只有车和细高的立牌，挡不到货车屏幕）。`layout.ts` 尺寸表、`structures.ts` 底座与路、罩棚（朝下的聚光——卡通渐变最暗一阶不是 0，点光会从下面把罩棚顶“照亮”）、加油岛、价格立柱、汽车旅馆高立牌（箭头一圈走马灯泡）、场地灯、`vehicles.ts` 停着的车（轿车、出租车顶灯、轻卡）与アドトラック（货厢侧面是 `engine/lyricScreen.ts` 的屏幕，逐字点亮当前行）、`stationSigns.ts` + `stationSignPaint.ts` 招牌（出租车顶灯滚下一句与曲名、罩棚店招写歌手、价格立柱的七段数码管是播放进度 / 总时长 / 第几句、旅馆立牌写曲名，副歌时 NO VACANCY）、`stationLights.ts`、`stationSeed.ts`（车位停什么、车色、出租车配色、谁打双闪）；车位按 seed 建，换了 seed 不同的歌整个场景重建（`rebuildsForSeed`）
 - 歌词字号由场景里的屏幕决定，通用字号设置只影响底部字幕
 
 ## Host surfaces
