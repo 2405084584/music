@@ -54,6 +54,7 @@ export class KonbiniLights {
     private readonly pools: THREE.Mesh[] = [];
     private readonly poolMaterials: { material: THREE.MeshBasicMaterial; key: 'spillLight' | 'streetLight' | 'vendingLight'; level: number }[] = [];
     private levels: KonbiniLightLevels = { interior: 1, street: 1 };
+    private flash = 0;
     private readonly stripTexture = createPoolTexture(false);
     private readonly roundTexture = createPoolTexture(true);
 
@@ -161,6 +162,14 @@ export class KonbiniLights {
             const scale = key === 'streetLight' ? street : key === 'spillLight' ? interior : 1;
             material.color.copy(this.blend.get(key)).multiplyScalar(level * scale);
         });
+    }
+
+    /** 闪电：天光和月光一下子亮起来（0..1）。 */
+    setFlash(flash: number) {
+        if (flash === this.flash) return;
+        this.flash = flash;
+        this.hemi.intensity = 2.1 * (1 + 1.5 * flash);
+        this.moon.intensity = 1.35 * (1 + 1.2 * flash);
     }
 
     /** 下一帧重画阴影图（建场景、开关门时）。 */

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-// src/components/visualizer/konbini/konbiniReflection.ts
+// src/components/visualizer/konbini/fx/konbiniReflection.ts
 // 水洼里的倒影：把正交镜头按地面（y = planeY）镜像，只渲染 REFLECT 图层上的亮东西（招牌、灯箱、天花灯、
 // 灯头、贩卖机、只在倒影里出现的“橱窗光”）到半分辨率的 HDR 贴图；湿路面的着色器按 textureMatrix 投影取样。
 // 暗的墙和地本来就映不出什么，不画它们，倒影一帧只多十几个 draw call。

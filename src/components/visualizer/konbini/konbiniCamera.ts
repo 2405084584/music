@@ -200,6 +200,11 @@ export class KonbiniCamera {
         this.needsRender = false;
     }
 
+    /** 镜头到目标点的距离（景深的对焦深度）。 */
+    get focusDistance() {
+        return this.camera.position.distanceTo(this.target);
+    }
+
     get frustumHalfHeight() {
         return this.halfHeight / this.camera.zoom;
     }

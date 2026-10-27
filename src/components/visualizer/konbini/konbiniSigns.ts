@@ -226,7 +226,7 @@ export class KonbiniSigns {
 
         // 前面店招、右面 LED。
         const fasciaFront = placements.fasciaFaces[0]!;
-        this.fascia = this.staticSign(materials, 1600, Math.round(1600 * fasciaFront.height / fasciaFront.width), 0.92, 'basic');
+        this.fascia = this.staticSign(materials, 1600, Math.round(1600 * fasciaFront.height / fasciaFront.width), 0.78, 'basic');
         this.group.add(placedPlane(this.fascia.material, fasciaFront.width, fasciaFront.height, fasciaFront.position, fasciaFront.rotationY, 'Fascia/front'));
         const fasciaRight = placements.fasciaFaces[1]!;
         this.ledTexture = canvasTexture(this.ledCanvas, 1);

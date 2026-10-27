@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { KonbiniMaterials } from '../konbiniMaterials';
-import { KONBINI_REFLECT_LAYER } from '../konbiniReflection';
+import { KONBINI_REFLECT_LAYER } from '../fx/konbiniReflection';
 import { BOARD, DOOR, FASCIA, LEVEL, STORE } from './layout';
 import { boxSpan, cylinderAt, group, mesh, roundedBox, tubeBetween } from './shapes';
 
@@ -19,6 +19,8 @@ export interface KonbiniStoreParts {
     fasciaFaces: { position: THREE.Vector3; rotationY: number; width: number; height: number }[];
     /** 广告塔射灯灯头（世界坐标），灯光模块按它放聚光。 */
     boardLampHeads: THREE.Vector3[];
+    /** 广告塔射灯：灯头与它照着的字面上的点（光柱从灯头指向那里）。 */
+    boardLamps: { head: THREE.Vector3; target: THREE.Vector3 }[];
     /** 广告塔顶盖：中心、三角形（形状坐标 = (x - cx, -(z - cz))）、顶面高度。招牌模块在上面画屋顶 logo。 */
     boardLid: { center: THREE.Vector3; shape: THREE.Vector2[]; topY: number };
 }
@@ -214,6 +216,7 @@ const buildBoardTower = (materials: KonbiniMaterials) => {
     const parts: THREE.Object3D[] = [];
     const faces: KonbiniStoreParts['boardFaces'] = [];
     const lampHeads: THREE.Vector3[] = [];
+    const lamps: { head: THREE.Vector3; target: THREE.Vector3 }[] = [];
     const vertices: THREE.Vector3[] = [];
     for (let k = 0; k < 3; k += 1) {
         const a = BOARD.azimuth + (k * 2 * Math.PI) / 3;
@@ -238,6 +241,7 @@ const buildBoardTower = (materials: KonbiniMaterials) => {
             lamp.rotateX(0.5);
             parts.push(lamp);
             lampHeads.push(head);
+            lamps.push({ head: head.clone(), target: root.clone().setY(BOARD.y0 + H * 0.4).addScaledVector(normal, 0.03) });
         });
     }
     // 三块灯箱板：每面一块有厚度的背板，字面贴在外侧；上下沿各一根横梁。中间是空的，从上往下看得见屋顶。
@@ -290,7 +294,7 @@ const buildBoardTower = (materials: KonbiniMaterials) => {
         const local = vertex.clone().sub(center).multiplyScalar(1.01);
         return new THREE.Vector2(local.x, -local.z);
     });
-    return { group: group('Store/BoardTower', ...parts), faces, lampHeads, lid: { center, shape: lidShapePoints, topY: lidTop } };
+    return { group: group('Store/BoardTower', ...parts), faces, lampHeads, lid: { center, shape: lidShapePoints, topY: lidTop }, lamps };
 };
 
 export const buildKonbiniStore = (materials: KonbiniMaterials, interior: THREE.Object3D): KonbiniStoreParts => {
@@ -314,5 +318,6 @@ export const buildKonbiniStore = (materials: KonbiniMaterials, interior: THREE.O
         fasciaFaces: fascia.faces,
         boardLampHeads: tower.lampHeads,
         boardLid: tower.lid,
+        boardLamps: tower.lamps,
     };
 };

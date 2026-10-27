@@ -3,9 +3,20 @@ import type { MotionValue } from 'framer-motion';
 import type { AudioBands, Line, Theme } from '../../../types';
 import { resolveLucideIconNames } from '../../../services/lucideIconResolver';
 import { resolveThemeFontStack, resolveThemeFontWeight } from '../../../utils/fontStacks';
+import { createBaseClippingPlanes, KonbiniTraffic } from './actors/konbiniTraffic';
+import {
+    buildKonbiniLightningTimes,
+    listKonbiniDoorEvents,
+    resolveKonbiniCar,
+    resolveKonbiniLightning,
+} from './actors/konbiniSchedules';
+import { KonbiniNobori } from './actors/konbiniNobori';
+import { KonbiniWalkers } from './actors/konbiniWalkers';
+import { KonbiniLightCones } from './fx/konbiniLightCones';
+import { KonbiniSteam } from './fx/konbiniSteam';
 import { buildKonbiniBase } from './geometry/base';
 import { buildKonbiniInterior, type KonbiniProductBatch } from './geometry/interior';
-import { DEG } from './geometry/layout';
+import { BOARD, DEG, LEVEL, PROPS, ROAD, STORE } from './geometry/layout';
 import { buildKonbiniProps, buildKonbiniSongProps } from './geometry/props';
 import { bakeStatic, withGeometryCache, type KonbiniGeometryCache } from './geometry/shapes';
 import { buildKonbiniStore } from './geometry/store';
@@ -25,11 +36,11 @@ import { KonbiniLights } from './konbiniLights';
 import { KonbiniColorBlend, KonbiniMaterials } from './konbiniMaterials';
 import { resolveKonbiniPalette } from './konbiniPalette';
 import { resolveKonbiniVariation, type KonbiniVariation } from './konbiniSeed';
-import { KonbiniPost } from './konbiniPost';
-import { KONBINI_REFLECT_LAYER, KonbiniReflection } from './konbiniReflection';
+import { KonbiniPost, type KonbiniAtmosphereFrame } from './fx/konbiniPost';
+import { KONBINI_REFLECT_LAYER, KonbiniReflection } from './fx/konbiniReflection';
 import { KonbiniSigns } from './konbiniSigns';
-import { KonbiniWeather } from './konbiniWeather';
-import { KonbiniWetGround } from './konbiniWetGround';
+import { KonbiniWeather } from './fx/konbiniWeather';
+import { KonbiniWetGround } from './fx/konbiniWetGround';
 
 // src/components/visualizer/konbini/createKonbiniRuntime.ts
 // 雨町的运行时：一个 WebGL 上下文、一份场景，建一次，换歌、换主题、暂停都就地推给它（外壳用 useVisualizerPixiHost 托管）。
@@ -89,6 +100,8 @@ const themeKey = (theme: Theme) => [
 
 /** 主题的动效强度 → 雨量、闪烁这些氛围动效的倍数。 */
 const INTENSITY_SCALE: Record<Theme['animationIntensity'], number> = { calm: 0.7, normal: 1, chaotic: 1.3 };
+/** 每个窗口有车开过的概率，按主题的动效强度。 */
+const TRAFFIC_CHANCE: Record<Theme['animationIntensity'], number> = { calm: 0.4, normal: 0.6, chaotic: 0.78 };
 
 /** 画质档：自动降级只往后走。 */
 interface KonbiniQualityStep {
@@ -96,12 +109,14 @@ interface KonbiniQualityStep {
     reflectionScale: number;
     shadowMapSize: number;
     bloom: boolean;
+    streaks: boolean;
+    dof: boolean;
 }
 const QUALITY_STEPS: KonbiniQualityStep[] = [
-    { pixelRatio: 1.5, reflectionScale: 0.5, shadowMapSize: 2048, bloom: true },
-    { pixelRatio: 1.25, reflectionScale: 0.5, shadowMapSize: 2048, bloom: true },
-    { pixelRatio: 1, reflectionScale: 0.4, shadowMapSize: 1536, bloom: true },
-    { pixelRatio: 1, reflectionScale: 0.3, shadowMapSize: 1024, bloom: false },
+    { pixelRatio: 1.5, reflectionScale: 0.5, shadowMapSize: 2048, bloom: true, streaks: true, dof: true },
+    { pixelRatio: 1.25, reflectionScale: 0.5, shadowMapSize: 2048, bloom: true, streaks: true, dof: true },
+    { pixelRatio: 1, reflectionScale: 0.4, shadowMapSize: 1536, bloom: true, streaks: true, dof: false },
+    { pixelRatio: 1, reflectionScale: 0.3, shadowMapSize: 1024, bloom: false, streaks: false, dof: false },
 ];
 /** 平均帧时超过它（约 48fps 以下）就降一档；至少隔这么久才看一次。 */
 const DEGRADE_FRAME_MS = 21;
@@ -144,6 +159,8 @@ interface KonbiniDebugHook {
     setView: (azimuthDeg: number, elevationDeg: number, zoom?: number) => void;
     resetView: () => void;
     renderAt: (songSeconds: number, ambientSeconds?: number) => void;
+    /** 从氛围时间 from 往后找下一辆开到路中间的车，返回那一刻的氛围时间。 */
+    nextCar: (from: number) => number | null;
     stats: () => Record<string, number>;
     runtime: KonbiniRuntime;
 }
@@ -168,6 +185,12 @@ export class KonbiniRuntime {
     private readonly fans: THREE.Object3D[];
     private readonly signs: KonbiniSigns;
     private readonly weather: KonbiniWeather;
+    private readonly traffic: KonbiniTraffic;
+    private readonly walkers: KonbiniWalkers;
+    private readonly nobori: KonbiniNobori;
+    private readonly lightCones: KonbiniLightCones;
+    private readonly steam: KonbiniSteam;
+    private lightningTimes: number[] = [];
     private readonly wet: KonbiniWetGround;
     private readonly reflection: KonbiniReflection;
     private readonly post: KonbiniPost;
@@ -183,6 +206,19 @@ export class KonbiniRuntime {
     private boardTarget: KonbiniBoardTarget | null = null;
     private chorus = 0;
     private signRepaintTimer = 0;
+    /** 后处理的氛围参数：雾、云、闪电、雾里的两处灯，每帧更新。 */
+    private readonly atmosphere: KonbiniAtmosphereFrame = {
+        time: 0,
+        mistColor: new THREE.Color(),
+        mistAmount: 0.2,
+        cloudColor: new THREE.Color(),
+        lightning: 0,
+        glowA: new THREE.Vector4(),
+        glowColorA: new THREE.Color(),
+        glowB: new THREE.Vector4(),
+        glowColorB: new THREE.Color(),
+        wind: new THREE.Vector2(),
+    };
     private readonly resizeObserver: ResizeObserver;
     private readonly geometryCache: KonbiniGeometryCache = new Map();
     private raf = 0;
@@ -224,6 +260,8 @@ export class KonbiniRuntime {
         this.renderer.shadowMap.type = THREE.PCFShadowMap;
         this.renderer.shadowMap.autoUpdate = false;
         this.renderer.info.autoReset = false;
+        // 车和行人从底座边缘“走出来”：它们的材质带底座的裁切面。
+        this.renderer.localClippingEnabled = true;
         const canvas = this.renderer.domElement;
         canvas.style.position = 'absolute';
         canvas.style.inset = '0';
@@ -239,6 +277,7 @@ export class KonbiniRuntime {
         const variation = resolveKonbiniVariation(options.song.seed);
         this.variation = variation;
         this.doorEvents = buildKonbiniDoorEvents(options.song.lines, variation);
+        this.lightningTimes = buildKonbiniLightningTimes(options.song.lines);
 
         const { base, interior, store, props, songProps } = withGeometryCache(this.geometryCache, () => {
             const builtInterior = buildKonbiniInterior(this.materials, variation.shelfSeed);
@@ -289,11 +328,35 @@ export class KonbiniRuntime {
         });
         this.repaintSigns(palette);
 
-        this.weather = new KonbiniWeather(this.materials, this.blend, variation, options.previewMode ? { rain: 800, splash: 160 } : { rain: 2000, splash: 560 });
+        const boardFront = new THREE.Vector3(Math.sin(BOARD.azimuth), 0, Math.cos(BOARD.azimuth)).multiplyScalar(BOARD.faceWidth / (2 * Math.sqrt(3)) + 0.8);
+        this.weather = new KonbiniWeather(this.materials, this.blend, variation, options.previewMode ? { rain: 800, splash: 160 } : { rain: 2000, splash: 560 }, [
+            { position: new THREE.Vector3(props.streetLampHead.x - 0.2, 2.4, props.streetLampHead.z), radius: 1.7 },
+            { position: new THREE.Vector3((STORE.frontPillarEnd + STORE.x1) / 2, 1.5, STORE.z1 + 0.9), radius: 2.0 },
+            { position: new THREE.Vector3(BOARD.cx + boardFront.x, BOARD.y0 + BOARD.faceHeight * 0.55, BOARD.cz + boardFront.z), radius: 2.1 },
+        ]);
         this.scene.add(this.weather.group);
+        const clipping = createBaseClippingPlanes();
+        this.traffic = withGeometryCache(this.geometryCache, () => new KonbiniTraffic(this.materials, this.blend, clipping));
+        this.walkers = new KonbiniWalkers(this.materials, clipping);
+        this.nobori = new KonbiniNobori(this.materials);
+        this.lightCones = new KonbiniLightCones(this.materials, this.blend, props.streetLampHead, store.boardLamps);
+        this.steam = new KonbiniSteam(this.materials, this.blend, [
+            { position: new THREE.Vector3(-2.4, LEVEL.road + 0.02, (ROAD.inner + ROAD.outer) / 2 + 0.3), puffs: 7, period: 4.4, size: 1 },
+            { position: new THREE.Vector3(PROPS.roofAc[0].x - 0.12, STORE.roofTop + 0.68, PROPS.roofAc[0].z + 0.2), puffs: 5, period: 3.3, size: 0.6 },
+        ]);
+        this.scene.add(this.traffic.group, this.walkers.group, this.nobori.group, this.lightCones.mesh, this.steam.mesh);
+        this.paintNobori();
         this.reflection = new KonbiniReflection(0.06, QUALITY_STEPS[0]!.reflectionScale);
         this.wet.uniforms.uReflection.value = this.reflection.target.texture;
-        this.post = new KonbiniPost(this.renderer, this.scene, this.camera.camera, { samples: options.previewMode ? 0 : 4, bloom: !options.previewMode });
+        this.post = new KonbiniPost(this.renderer, this.scene, this.camera.camera, {
+            samples: options.previewMode ? 0 : 4,
+            bloom: !options.previewMode,
+            streaks: !options.previewMode,
+            dof: !options.previewMode,
+        });
+        this.atmosphere.glowA.set((STORE.frontPillarEnd + STORE.x1) / 2 + 0.6, 0, STORE.z1 + 0.9, 3.4);
+        this.atmosphere.glowB.set(props.streetLampHead.x, 0, props.streetLampHead.z, 2.3);
+        this.atmosphere.wind.set(Math.sin(variation.windYaw), Math.cos(variation.windYaw)).multiplyScalar(0.06);
         this.scene.background = this.sky.texture;
         this.syncColors();
         this.lights.invalidateShadows();
@@ -349,7 +412,7 @@ export class KonbiniRuntime {
         this.renderer.setPixelRatio(this.pixelRatio);
         this.reflection.setScale(step.reflectionScale, this.size.width * this.pixelRatio, this.size.height * this.pixelRatio);
         this.lights.setShadowMapSize(step.shadowMapSize);
-        this.post.setBloom(step.bloom);
+        this.post.setQuality(step);
         this.resize(this.size.width, this.size.height);
         this.frameTimes.length = 0;
         console.info(`[Konbini] frame time ${average.toFixed(1)} ms, quality step ${this.quality}`);
@@ -362,6 +425,9 @@ export class KonbiniRuntime {
         this.sky.paint(this.blend.get('skyTop'), this.blend.get('skyBottom'));
         this.wet.syncColors();
         this.weather.syncColors();
+        this.traffic?.syncColors();
+        this.lightCones?.syncColors();
+        this.steam?.syncColors();
         const color = new THREE.Color();
         this.productBatches.forEach(batch => {
             for (let index = 0; index < batch.colorIndex.length; index += 1) {
@@ -420,7 +486,16 @@ export class KonbiniRuntime {
         this.reflection.render(this.renderer, this.scene, camera);
         this.wet.uniforms.uReflectMatrix.value.copy(this.reflection.textureMatrix);
         const pixelWorldSize = (camera.top - camera.bottom) / camera.zoom / Math.max(1, this.size.height * this.pixelRatio);
-        this.post.render(pixelWorldSize);
+        const zoom = camera.zoom;
+        this.post.render(pixelWorldSize, this.camera.focusDistance, this.atmosphere, {
+            focusBand: 3.4 / zoom,
+            focusFalloff: 7.5 / zoom,
+            dof: 0.9,
+            tilt: this.options.previewMode ? 0 : 0.28,
+            aberration: 0.014,
+            vignette: 0.55,
+            grain: 0.032,
+        });
         this.adaptQuality(now);
         this.lastCalls = this.renderer.info.render.calls;
         this.lastTriangles = this.renderer.info.render.triangles;
@@ -457,6 +532,32 @@ export class KonbiniRuntime {
         const intensity = INTENSITY_SCALE[this.theme.animationIntensity] ?? 1;
         const rain = (0.62 + 0.22 * audio + 0.12 * this.chorus) * intensity;
         this.weather.update({ time: this.clock.elapsed, intensity: rain });
+        // 会动的东西：车按氛围时钟，顾客跟着开门（歌曲时间），旗随风飘，白气、光柱慢慢流。
+        const instrumental = this.song.isInstrumental || lines.length === 0;
+        // 静态模式下街上没有车和人，场景是一张定格的画。
+        this.traffic.group.visible = !this.staticMode;
+        this.walkers.group.visible = !this.staticMode;
+        this.traffic.update(this.clock.elapsed, this.song.seed, TRAFFIC_CHANCE[this.theme.animationIntensity] ?? 0.6);
+        this.walkers.update({
+            songTime,
+            ambientTime: this.clock.elapsed,
+            doorEvents: listKonbiniDoorEvents(this.doorEvents, songTime, this.variation, instrumental),
+            seed: this.song.seed,
+        });
+        this.nobori.update(this.clock.elapsed, 0.35 + 0.65 * Math.min(1, rain));
+        this.lightCones.update(this.clock.elapsed, 0.75 + 0.25 * streetFlicker);
+        this.steam.update(this.clock.elapsed, this.atmosphere.wind);
+        const lightning = this.staticMode ? 0 : resolveKonbiniLightning(this.lightningTimes, songTime);
+        this.atmosphere.lightning = lightning;
+        this.lights.setFlash(lightning);
+        const interiorLevel = 1 + 0.1 * this.chorus + 0.06 * this.doorOpenness;
+        const atmosphere = this.atmosphere;
+        atmosphere.time = this.clock.elapsed;
+        atmosphere.mistColor.copy(this.blend.get('skyBottom')).multiplyScalar(1.35);
+        atmosphere.mistAmount = 0.16 + 0.12 * Math.min(1, rain);
+        atmosphere.cloudColor.copy(this.blend.get('skyBottom')).lerp(this.blend.get('moon'), 0.25).multiplyScalar(0.7);
+        atmosphere.glowColorA.copy(this.blend.get('interiorLight')).multiplyScalar(0.55 * interiorLevel);
+        atmosphere.glowColorB.copy(this.blend.get('streetLight')).multiplyScalar(0.42 * (0.75 + 0.25 * streetFlicker));
         this.wet.uniforms.uTime.value = this.clock.elapsed;
         this.wet.uniforms.uRain.value = Math.min(1, 0.45 + 0.5 * rain);
         this.signs.update({
@@ -511,8 +612,24 @@ export class KonbiniRuntime {
             icons: resolveLucideIconNames(this.theme.lyricsIcons),
             fallbacks: this.options.fallbackIcons,
         });
+        this.paintNobori(palette);
         this.boardTarget = null;
         this.wantsFrame = true;
+    }
+
+    /** 门口三面旗：曲名、主题图标与主题名、おでん。 */
+    private paintNobori(palette = resolveKonbiniPalette(this.theme, this.song.seed)) {
+        if (!this.nobori) return;
+        const icons = resolveLucideIconNames(this.theme.lyricsIcons);
+        this.nobori.paint({
+            font: { stack: resolveThemeFontStack(this.theme), weight: resolveThemeFontWeight(this.theme, 700) },
+            title: this.song.title || this.song.album || '雨町',
+            themeName: this.theme.provider === 'AI' ? this.theme.name ?? '' : '',
+            icon: icons[0],
+            fallbacks: this.options.fallbackIcons,
+            brand: palette.brand,
+            ink: palette.signText,
+        });
     }
 
     swapSong(song: KonbiniSongContext) {
@@ -521,6 +638,7 @@ export class KonbiniRuntime {
         this.variation = resolveKonbiniVariation(song.seed);
         if (seedChanged) this.rebuildSongProps();
         this.doorEvents = buildKonbiniDoorEvents(song.lines, this.variation);
+        this.lightningTimes = buildKonbiniLightningTimes(song.lines);
         const palette = resolveKonbiniPalette(this.theme, song.seed);
         this.blend.setTarget(palette, this.staticMode);
         this.repaintSigns(palette);
@@ -585,6 +703,14 @@ export class KonbiniRuntime {
                 if (ambientSeconds !== undefined) this.clock.elapsed = ambientSeconds;
                 this.renderFrame(performance.now());
             },
+            nextCar: from => {
+                const chance = TRAFFIC_CHANCE[this.theme.animationIntensity] ?? 0.6;
+                for (let t = from; t < from + 120; t += 0.1) {
+                    const car = resolveKonbiniCar(t, this.song.seed, chance);
+                    if (car && Math.abs(car.distance - 8) < 0.3) return t;
+                }
+                return null;
+            },
             stats: () => {
                 const average = this.frameTimes.length ? this.frameTimes.reduce((sum, value) => sum + value, 0) / this.frameTimes.length : 0;
                 return {
@@ -620,6 +746,11 @@ export class KonbiniRuntime {
         this.lights.dispose();
         this.signs.dispose();
         this.weather.dispose();
+        this.traffic.dispose();
+        this.walkers.dispose();
+        this.nobori.dispose();
+        this.lightCones.dispose();
+        this.steam.dispose();
         this.reflection.dispose();
         this.post.dispose();
         this.sky.dispose();

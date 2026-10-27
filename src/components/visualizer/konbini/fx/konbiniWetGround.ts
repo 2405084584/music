@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import type { KonbiniColorBlend, KonbiniMaterials } from './konbiniMaterials';
+import type { KonbiniColorBlend, KonbiniMaterials } from '../konbiniMaterials';
 
-// src/components/visualizer/konbini/konbiniWetGround.ts
+// src/components/visualizer/konbini/fx/konbiniWetGround.ts
 // 湿路面：沥青和人行道顶面换成注入了水洼的卡通材质。水洼位置是按 seed 平移的两层值噪声；水洼里压暗底色、
 // 映出天空色与倒影贴图（按雨点涟漪的法线扰动），水洼外只有一层弱的湿润反光。涟漪是格子里随机生灭的圆环，
 // 只用氛围时钟，暂停时定格。所有湿面共用一组 uniform。

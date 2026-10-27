@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { BASE, FASCIA, LEVEL, STORE } from './geometry/layout';
-import type { KonbiniColorBlend, KonbiniMaterials } from './konbiniMaterials';
-import type { KonbiniVariation } from './konbiniSeed';
+import { BASE, FASCIA, LEVEL, STORE } from '../geometry/layout';
+import type { KonbiniColorBlend, KonbiniMaterials } from '../konbiniMaterials';
+import type { KonbiniVariation } from '../konbiniSeed';
 
-// src/components/visualizer/konbini/konbiniWeather.ts
+// src/components/visualizer/konbini/fx/konbiniWeather.ts
 // 雨：雨丝（一个 LineSegments，几千条，顶点着色器按氛围时钟往下推、绕回顶上；落在店顶上的停在屋顶）、
 // 落地水花（InstancedMesh 的扁圆环，每个实例按周期换位置）、店招下沿与落水管口的滴水（InstancedMesh，
 // 一段下落、一段溅开）。都只读 uTime，暂停时定格；不写深度，所以不被描边。三个 draw call。
@@ -34,9 +34,11 @@ uniform vec2 uWind;
 uniform float uLength;
 uniform float uSpeed;
 uniform float uDensity;
+uniform vec4 uGlints[3];
 attribute vec4 aSeed;
 attribute float aEnd;
 varying float vAlpha;
+varying float vGlint;
 ${GROUND_GLSL}
 void main() {
     vec2 base = aSeed.xy;
@@ -52,16 +54,26 @@ void main() {
     float inside = step(abs(head.x), ${(HALF + 0.1).toFixed(2)}) * step(abs(head.z), ${(HALF + 0.1).toFixed(2)});
     float visible = step(aSeed.w, uDensity);
     vAlpha = (1.0 - aEnd * 0.85) * inside * visible * smoothstep(0.0, 0.6, y - ground);
+    // 落进灯光里的雨丝被照亮：路灯光柱、店门口、广告塔前。
+    vGlint = 0.0;
+    for (int i = 0; i < 3; i++) {
+        vec3 d = head - uGlints[i].xyz;
+        vGlint += exp(-dot(d, d) / (uGlints[i].w * uGlints[i].w));
+    }
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
 
 const RAIN_FRAGMENT = /* glsl */ `
 uniform vec3 uColor;
+uniform vec3 uGlintColor;
 uniform float uOpacity;
 varying float vAlpha;
+varying float vGlint;
 void main() {
-    gl_FragColor = vec4(uColor * vAlpha * uOpacity, 1.0);
+    float glint = min(1.0, vGlint);
+    vec3 color = mix(uColor, uGlintColor, glint) * (1.0 + 2.2 * glint);
+    gl_FragColor = vec4(color * vAlpha * uOpacity, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
 }
@@ -184,7 +196,13 @@ export class KonbiniWeather {
     private readonly dripMaterial: THREE.ShaderMaterial;
     private readonly geometries: THREE.BufferGeometry[] = [];
 
-    constructor(materials: KonbiniMaterials, private readonly blend: KonbiniColorBlend, variation: KonbiniVariation, counts: { rain: number; splash: number }) {
+    constructor(
+        materials: KonbiniMaterials,
+        private readonly blend: KonbiniColorBlend,
+        variation: KonbiniVariation,
+        counts: { rain: number; splash: number },
+        glints: { position: THREE.Vector3; radius: number }[],
+    ) {
         this.group.name = 'Weather';
         const shared = {
             uRoof: { value: ROOF_UNIFORM() },
@@ -219,6 +237,11 @@ export class KonbiniWeather {
                 uSpeed: { value: 11 },
                 uDensity: { value: 0.8 },
                 uColor: { value: new THREE.Color() },
+                uGlintColor: { value: new THREE.Color() },
+                uGlints: { value: [0, 1, 2].map(index => {
+                    const glint = glints[index];
+                    return glint ? new THREE.Vector4(glint.position.x, glint.position.y, glint.position.z, glint.radius) : new THREE.Vector4(0, -100, 0, 0.001);
+                }) },
                 uOpacity: { value: 0.3 },
             },
         })));
@@ -299,6 +322,7 @@ export class KonbiniWeather {
         // 雨丝偏天空色、提亮；被店里的暖光照着的部分由加色混合自然带出。
         const rain = this.blend.get('skyBottom').clone().lerp(new THREE.Color(0xdfe9ff), 0.72);
         (this.rainMaterial.uniforms.uColor!.value as THREE.Color).copy(rain);
+        (this.rainMaterial.uniforms.uGlintColor!.value as THREE.Color).copy(this.blend.get('streetLight')).lerp(this.blend.get('interiorLight'), 0.4);
         (this.splashMaterial.uniforms.uColor!.value as THREE.Color).copy(rain).multiplyScalar(0.8);
         (this.dripMaterial.uniforms.uColor!.value as THREE.Color).copy(rain).lerp(this.blend.get('interiorLight'), 0.25);
     }
