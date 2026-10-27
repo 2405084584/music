@@ -246,6 +246,21 @@ Visualizer 消费已解析的 `LyricData` / `Line` / `Word`，不负责解析 `.
 - `hanabiBeatFx.ts`：智能动感模式的两个效果。「随拍开花」按节拍表在夜空上半部每拍开一朵小烟花，小节第一拍提前升空、正好在拍上开大的，重音越强开得越大、没有节奏的小节不开；运行时把节拍表交给在画的场景，场景按拍的时刻把烟花放进那时所在的镜头（跟着上升、旋转）。「随拍推镜」把拍的包络套在整个场景层上（以画面中心推近、左右轻摆）。静态模式、仅显示歌词文字时都不放
 - 歌词字号由每个预设的文字区决定，通用字号设置只影响底部字幕
 
+### Konbini
+
+雨町（实验）：three.js 程序化生成的雨夜便利店街角微缩模型（约 12m×12m 底座，正交斜俯视），歌词是场景里的招牌。不挂共享背景（`background: false`），天空自己画。快速定位：
+
+- `konbini/VisualizerKonbini.tsx`：React 外壳 / 字幕；运行时用 `pixi/pixiRuntimeHost.ts` 的 `useVisualizerPixiHost` 托管（与渲染器无关），建一次，换歌、换主题、暂停、静态模式就地推给它；WebGL 上下文丢了换一个 epoch 重建
+- `konbini/createKonbiniRuntime.ts`：WebGLRenderer、自己的 RAF 循环（暂停时只在镜头动、颜色插值、换牌动画时出帧）、自动画质降级（DPR、倒影分辨率、阴影图、bloom，只降不升）、DEV 调试钩子 `window.__konbiniDebug`（`setView(方位角, 俯角, 缩放)`、`renderAt(歌曲秒)`、`stats()`）
+- `konbini/geometry/`：分层函数和命名 Group 搭场景（`layout.ts` 尺寸表、`base.ts` 底座与路、`store.ts` 店身与三面广告塔、`interior.ts` 店内、`props.ts` 街边道具与按歌变的 `SongProps`）；`shapes.ts` 的 `bakeStatic` 建完后按材质合批，重复物用 InstancedMesh
+- `konbiniPalette.ts`：主题 → 调色板（纯函数）。雨夜的底子固定，主题色进店招三色条、灯箱字、LED、霓虹、贩卖机和商品，天空 / 店内光只偏一点色相；偏灰主题按 seed 选经典配色；背景亮的主题换白底灯箱。`konbiniMaterials.ts` 的 `KonbiniColorBlend` 换主题时插值过去
+- `konbiniSigns.ts` + `konbiniSignRaster.ts` + `konbiniBoardLayout.ts`：屋顶三面广告塔逐字点亮当前行（字的时间来自 `buildLineGraphemeTimeline`，关键词按字符范围着色，换行时灯箱熄一下再亮）、右面店招的 LED 点阵跑马灯（下一句 / 译文）、前面店招（主题图标 logo + 曲名当店名）、立柱灯箱、玻璃海报、窗内霓虹、门口 A 字立牌（AI 主题的主题名）。主题图标经 `../lucidePath2d.ts` 画成 Path2D（与花火拼贴共用）
+- `konbiniDirector.ts`：牌面在行与曲名卡之间切、段落开头开自动门（`../paragraphStructure.ts`）、副歌加亮、招牌闪烁日程、音频包络（纯函数）；`konbiniSeed.ts` 按 seed 变自行车、伞、风向、水洼
+- `konbiniClock.ts`：统一可暂停的氛围时钟（雨、涟漪、滴水、闪烁）；歌词、门、副歌读歌曲时间
+- `konbiniWeather.ts`（雨丝、水花、滴水，三个 draw call）、`konbiniWetGround.ts`（湿路面：水洼、涟漪、倒影取样）、`konbiniReflection.ts`（镜像正交镜头只画倒影图层到半分辨率贴图，店身在那里是全黑的遮挡）、`konbiniPost.ts`（深度拉普拉斯墨线 + 克制的 bloom + 输出）
+- 镜头 `konbiniCamera.ts`：OrbitControls，方位角限默认构图 ±75°、俯角 20°–70°、不平移，松手 8 秒缓回默认构图；预览里不接拖拽
+- 歌词字号由广告塔字面决定，通用字号设置只影响底部字幕
+
 ## Host surfaces
 
 不要只在主播放器里验证 visualizer。统一 renderer 当前被这些宿主复用：
