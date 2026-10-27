@@ -490,6 +490,9 @@ export class MachiRuntime {
         this.raf = 0;
         if (this.disposed) return;
         this.renderFrame(now);
+        // 这一帧里可能已经有人 wake() 排过下一帧（镜头摆位、换场景都会叫醒）：再排一次就多出一条并行的渲染链，
+        // 每个刷新周期画两遍，而且会越滚越多。
+        if (this.raf) return;
         const animating = !this.clock.paused;
         if (animating || this.camera.busy || this.stage.busy || this.wantsFrame || this.environmentMoving || this.fadePhase !== 'idle') {
             this.raf = requestAnimationFrame(this.frame);
