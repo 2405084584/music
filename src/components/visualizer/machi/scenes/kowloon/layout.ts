@@ -113,14 +113,6 @@ export const POLE = { x: 5.55, z: -1.15, height: 7.0, lampArm: 1.25, lampY: 5.05
 /** 贩卖机：B2 门前。 */
 export const VENDING = { x: 4.95, z: -1.95 } as const;
 
-/** 客机的航线：从右往左低空掠过楼顶（启德的进场航线），微微下降。 */
-export const JET = {
-    from: [17, 9.4, -4.6] as const,
-    to: [-17, 8.8, -2.4] as const,
-    /** 一趟飞多久（秒）。 */
-    duration: 6.5,
-} as const;
-
 /** 默认视角：从前右斜俯视。 */
 export const KOWLOON_VIEW = {
     azimuth: 30 * DEG,

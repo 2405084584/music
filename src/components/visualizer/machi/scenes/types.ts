@@ -82,6 +82,8 @@ export interface MachiScene {
     readonly surfaces: { road: THREE.Mesh[]; lot: THREE.Mesh[] };
     /** 水洼噪声的平移与覆盖量（按歌变）。 */
     readonly puddles: { offset: [number, number]; amount: number };
+    /** 歌词屏的中心：景深对焦在歌词上时对着它。 */
+    readonly focusPoint: THREE.Vector3;
     setContent(content: MachiSceneContent): void;
     swapSong(song: MachiSongContext, content: MachiSceneContent): void;
     direct(frame: MachiSceneFrame): void;

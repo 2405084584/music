@@ -40,7 +40,7 @@ import { createMachiSnowUniforms, setMachiSnowRoofs } from './engine/snow';
 import { resolveMachiSceneId } from './machiTuning';
 import { MACHI_SCENES } from './scenes';
 import type { MachiScene, MachiSceneContent, MachiSceneContext } from './scenes/types';
-import type { MachiSceneId, MachiTuning } from './types';
+import type { MachiCameraView, MachiSceneId, MachiTuning } from './types';
 
 // src/components/visualizer/machi/createMachiRuntime.ts
 // 町景的运行时：一个 WebGL 上下文，建一次；换歌、换主题、换设置、暂停都就地推给它（外壳用 useVisualizerPixiHost 托管）。
@@ -72,6 +72,8 @@ export interface MachiRuntimeOptions {
     showText: boolean;
     /** 样式架小图、主题乐园预览：低分辨率、不接拖拽。 */
     previewMode: boolean;
+    /** 自定义视角下拖动停稳了：新视角（相对默认构图）交给外面存进 tuning。 */
+    onViewChange?: (view: MachiCameraView) => void;
     /** 主题没有图标时招牌上的兜底图标。 */
     fallbackIcons: readonly string[];
     /** WebGL 上下文丢了：外壳重建运行时。 */
@@ -135,7 +137,10 @@ const lerpColor = (out: THREE.Color, a: THREE.Color, b: THREE.Color, t: number) 
 
 interface MachiDebugHook {
     setView: (azimuthDeg: number, elevationDeg: number, zoom?: number) => void;
+    /** 回到静止位置（默认构图或自定义视角）。 */
     resetView: () => void;
+    /** 此刻的视角，相对默认构图。 */
+    cameraOffset: () => MachiCameraView;
     renderAt: (songSeconds: number, ambientSeconds?: number) => void;
     /** 从氛围时间 from 往后找下一辆开到路中间的车，返回那一刻的氛围时间。 */
     nextCar: (from: number) => number | null;
@@ -273,9 +278,12 @@ export class MachiRuntime {
             samples: options.previewMode ? 0 : 4,
             bloom: !options.previewMode,
             streaks: !options.previewMode,
-            dof: !options.previewMode,
+            dof: true,
         });
         this.scene.background = this.sky.texture;
+        this.camera.onCommit = view => this.options.onViewChange?.(view);
+        this.camera.onWake = () => this.wake();
+        this.camera.setCustom(options.tuning.camera === 'custom' ? options.tuning.view : null);
         this.mountScene(sceneId);
 
         if (!options.previewMode) this.camera.attach(canvas);
@@ -520,13 +528,16 @@ export class MachiRuntime {
             this.ground.uniforms.uReflectMatrix.value.copy(this.reflection.textureMatrix);
         }
         const pixelWorldSize = (camera.top - camera.bottom) / camera.zoom / Math.max(1, this.size.height * this.pixelRatio);
-        // 景深按相对默认构图的缩放走：默认构图下的微缩感不变，拉近时景深变浅。
+        // 景深按相对默认构图的缩放走：默认构图下的微缩感不变，拉近时景深变浅。强度过 1 以后加大离焦层的模糊半径。
         const zoom = camera.zoom / this.camera.defaultView.zoom;
+        const tuning = this.tuning;
         this.post.render(pixelWorldSize, this.camera.focusDistance, this.atmosphere, {
-            focusBand: 3.4 / zoom,
-            focusFalloff: 7.5 / zoom,
-            dof: 0.9,
-            tilt: this.options.previewMode ? 0 : 0.28,
+            focus: this.focusDepth(),
+            focusBand: (3.4 * tuning.dofRange) / zoom,
+            focusFalloff: (7.5 * tuning.dofRange) / zoom,
+            dof: 0.9 * Math.min(1, tuning.dof),
+            blur: Math.max(1, tuning.dof),
+            tilt: tuning.tiltShift,
             aberration: 0.014,
             vignette: 0.55,
             grain: 0.032,
@@ -707,14 +718,27 @@ export class MachiRuntime {
         this.wake();
     }
 
-    /** 设置变了：场景不同就换场景；时间、天气渐变到新目标。 */
+    /** 对焦深度（离镜头的距离）：画面中心、歌词屏，或画面中心往前往后挪。 */
+    private focusDepth() {
+        const tuning = this.tuning;
+        if (tuning.focus === 'lyrics') return this.camera.depthOf(this.stage.focusPoint);
+        const center = this.camera.focusDistance;
+        return tuning.focus === 'manual' ? center + tuning.focusOffset : center;
+    }
+
+    /** 设置变了：场景不同就换场景；时间、天气渐变到新目标；镜头换到新视角；景深下一帧就用新值。 */
     setTuning(tuning: MachiTuning) {
         const previous = this.tuning;
-        if (previous.scene === tuning.scene && previous.timeOfDay === tuning.timeOfDay && previous.weather === tuning.weather) return;
+        if (previous === tuning) return;
         this.tuning = tuning;
-        const sceneId = resolveMachiSceneId(tuning, this.song.seed);
-        if (sceneId !== this.targetSceneId) this.requestScene(sceneId);
-        this.refreshEnvironmentTarget();
+        if (previous.scene !== tuning.scene) {
+            const sceneId = resolveMachiSceneId(tuning, this.song.seed);
+            if (sceneId !== this.targetSceneId) this.requestScene(sceneId);
+        }
+        if (previous.timeOfDay !== tuning.timeOfDay || previous.weather !== tuning.weather) this.refreshEnvironmentTarget();
+        this.camera.setCustom(tuning.camera === 'custom' ? tuning.view : null);
+        this.wantsFrame = true;
+        this.wake();
     }
 
     setPaused(paused: boolean) {
@@ -752,9 +776,10 @@ export class MachiRuntime {
                 this.renderFrame(performance.now());
             },
             resetView: () => {
-                this.camera.placeAt(this.camera.defaultView);
+                this.camera.placeAtRest();
                 this.renderFrame(performance.now());
             },
+            cameraOffset: () => this.camera.offset(),
             renderAt: (songSeconds: number, ambientSeconds?: number) => {
                 this.options.currentTime.set(songSeconds);
                 if (ambientSeconds !== undefined) this.clock.elapsed = ambientSeconds;

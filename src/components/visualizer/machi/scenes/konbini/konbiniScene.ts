@@ -126,6 +126,7 @@ class KonbiniScene implements MachiScene {
     readonly reflectionPlaneY = 0.06;
     readonly surfaces;
     readonly puddles;
+    readonly focusPoint = new THREE.Vector3(BOARD.cx, BOARD.y0 + BOARD.faceHeight / 2, BOARD.cz);
     private readonly world = new THREE.Group();
     private songProps: THREE.Group;
     private readonly productBatches: KonbiniProductBatch[];

@@ -59,6 +59,7 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
         subtitleOverlayOpacity,
         subtitleOverlayBackground,
         subtitleUpcomingLyricsBlur,
+        onVisualizerTuningChange,
     } = props;
     const { t } = useTranslation();
     const hostRef = useRef<HTMLDivElement>(null);
@@ -66,8 +67,8 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
     const [contextEpoch, setContextEpoch] = useState(0);
 
     // 运行时创建期间这些输入可能已经变了；create 完成后按最新值补一次。
-    const latestRef = useRef({ theme, paused, showText, staticMode, machiTuning });
-    latestRef.current = { theme, paused, showText, staticMode, machiTuning };
+    const latestRef = useRef({ theme, paused, showText, staticMode, machiTuning, onVisualizerTuningChange });
+    latestRef.current = { theme, paused, showText, staticMode, machiTuning, onVisualizerTuningChange };
 
     // 真正在画的歌：切歌时滞后于 props，免得对着还没到的歌词换牌面（songHandover.ts）。
     const committedSong = useVisualizerSongCommit({ seed, lines, currentTime, readyGraceMs: 3000 });
@@ -113,6 +114,8 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
                 staticMode: latest.staticMode,
                 showText: latest.showText,
                 previewMode: isPreviewMode,
+                // 自定义视角下拖动停稳了：新视角存进 tuning（宿主经 onVisualizerTuningChange 存）。
+                onViewChange: view => latestRef.current.onVisualizerTuningChange?.({ camera: 'custom', view } satisfies Partial<MachiTuning>),
                 fallbackIcons: MACHI_FALLBACK_ICONS,
                 onContextLost: () => setContextEpoch(epoch => epoch + 1),
                 signal,

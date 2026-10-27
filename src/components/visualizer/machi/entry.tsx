@@ -2,13 +2,14 @@ import React from 'react';
 import { cycleValue, QuickControlChip } from '../../shared/QuickControlChip';
 import { defineVisualizer, type VisualizerQuickControlsProps } from '../definition';
 import MachiSettingsPanel, {
+    MACHI_CAMERA_LABEL_KEYS,
     MACHI_SCENE_CHOICES,
     MACHI_SCENE_LABEL_KEYS,
     MACHI_TIME_LABEL_KEYS,
     MACHI_WEATHER_LABEL_KEYS,
 } from './MachiSettingsPanel';
 import machiTuning from './tuning';
-import { MACHI_TIMES_OF_DAY, MACHI_WEATHERS, type MachiTuning } from './types';
+import { MACHI_CAMERA_MODES, MACHI_TIMES_OF_DAY, MACHI_WEATHERS, type MachiTuning } from './types';
 
 const VisualizerMachi = React.lazy(() => import('./VisualizerMachi'));
 
@@ -16,7 +17,8 @@ const VisualizerMachi = React.lazy(() => import('./VisualizerMachi'));
 // Registers 町景 (Machi), an experimental three.js style: procedural miniature dioramas of a Japanese town (a
 // convenience-store street corner for now) whose signs carry the lyrics — the current line lit up word by word on
 // an LED screen, the next line on an LED ticker, the song on the shop signs. The scene, time of day and weather are
-// tuning (each can be "auto"); the theme's colours and icons repaint the "chain".
+// tuning (each can be "auto"), and so are a pinned camera view and the depth of field; the theme's colours and icons
+// repaint the "chain".
 export default defineVisualizer({
     mode: 'machi',
     order: 27,
@@ -47,6 +49,7 @@ export default defineVisualizer({
         const scene = t(MACHI_SCENE_LABEL_KEYS[tuning.scene]);
         const time = t(MACHI_TIME_LABEL_KEYS[tuning.timeOfDay]);
         const weather = t(MACHI_WEATHER_LABEL_KEYS[tuning.weather]);
+        const camera = t(MACHI_CAMERA_LABEL_KEYS[tuning.camera]);
         return (
             <>
                 <QuickControlChip
@@ -63,6 +66,12 @@ export default defineVisualizer({
                     label={weather}
                     title={`${t('options.machiWeather')}: ${weather}`}
                     onClick={() => onTuningChange({ weather: cycleValue(MACHI_WEATHERS, tuning.weather) })}
+                />
+                {/* 拖到想要的视角再点它：切到自定义视角时，刚拖过的视角就固定下来。 */}
+                <QuickControlChip
+                    label={camera}
+                    title={`${t('options.machiCameraMode')}: ${camera}`}
+                    onClick={() => onTuningChange({ camera: cycleValue(MACHI_CAMERA_MODES, tuning.camera) })}
                 />
             </>
         );

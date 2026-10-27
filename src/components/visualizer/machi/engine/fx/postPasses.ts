@@ -372,10 +372,13 @@ void main() {
 `;
 
 export interface MachiLensSettings {
+    /** 对焦深度（离镜头的距离）、清晰的半宽、从清晰到全虚的过渡宽度（都是米）。 */
     focus: number;
     focusBand: number;
     focusFalloff: number;
+    /** 离焦处虚到几成（0..1），与离焦层的模糊半径倍数（1 是默认，越大越虚）。 */
     dof: number;
+    blur: number;
     tilt: number;
     aberration: number;
     vignette: number;
@@ -394,7 +397,11 @@ export class MachiLensPass extends Pass {
     readonly material: THREE.ShaderMaterial;
     private readonly quad = new FullScreenQuad();
     private size = new THREE.Vector2(1, 1);
+    /** 画质允许景深（自动降级会关掉）。 */
     dofEnabled = true;
+    /** 这一帧有景深或移轴：没有就不做离焦层。 */
+    private dofActive = true;
+    private blurScale = 1;
 
     constructor(private readonly scene: MachiSceneTarget) {
         super();
@@ -437,12 +444,14 @@ export class MachiLensPass extends Pass {
 
     configure(settings: MachiLensSettings, depthRange: number, time: number) {
         const uniforms = this.material.uniforms;
+        this.dofActive = this.dofEnabled && (settings.dof > 0.001 || settings.tilt > 0.001);
+        this.blurScale = settings.blur;
         uniforms.uDepthRange!.value = depthRange;
         uniforms.uFocus!.value = settings.focus;
         uniforms.uFocusBand!.value = settings.focusBand;
         uniforms.uFocusFalloff!.value = settings.focusFalloff;
-        uniforms.uDof!.value = this.dofEnabled ? settings.dof : 0;
-        uniforms.uTilt!.value = this.dofEnabled ? settings.tilt : 0;
+        uniforms.uDof!.value = this.dofActive ? settings.dof : 0;
+        uniforms.uTilt!.value = this.dofActive ? settings.tilt : 0;
         uniforms.uAberration!.value = settings.aberration;
         uniforms.uVignette!.value = settings.vignette;
         uniforms.uGrain!.value = settings.grain;
@@ -453,12 +462,14 @@ export class MachiLensPass extends Pass {
 
     render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget) {
         const [a, b] = this.targets as [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget];
-        if (this.dofEnabled) {
+        if (this.dofActive) {
             this.copy.uniforms.tDiffuse!.value = readBuffer.texture;
             this.quad.material = this.copy;
             renderer.setRenderTarget(a);
             this.quad.render(renderer);
-            const passes: [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget, number, number][] = [[a, b, 1.6, 0], [b, a, 0, 1.6], [a, b, 2.6, 0], [b, a, 0, 2.6]];
+            const near = 1.6 * this.blurScale;
+            const far = 2.6 * this.blurScale;
+            const passes: [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget, number, number][] = [[a, b, near, 0], [b, a, 0, near], [a, b, far, 0], [b, a, 0, far]];
             passes.forEach(([from, to, x, y]) => {
                 this.gauss.uniforms.tDiffuse!.value = from.texture;
                 (this.gauss.uniforms.uStep!.value as THREE.Vector2).set(x / this.size.x, y / this.size.y);
@@ -469,7 +480,7 @@ export class MachiLensPass extends Pass {
         }
         const uniforms = this.material.uniforms;
         uniforms.tDiffuse!.value = readBuffer.texture;
-        uniforms.tBlur!.value = this.dofEnabled ? a.texture : readBuffer.texture;
+        uniforms.tBlur!.value = this.dofActive ? a.texture : readBuffer.texture;
         uniforms.tDepth!.value = this.scene.target.depthTexture;
         this.quad.material = this.material;
         renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);

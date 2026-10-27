@@ -128,6 +128,7 @@ class StationScene implements MachiScene {
     readonly rebuildsForSeed = true;
     readonly surfaces;
     readonly puddles;
+    readonly focusPoint = new THREE.Vector3(TRUCK_SCREEN.x, TRUCK_SCREEN.y, TRUCK_SCREEN.z);
     private readonly world = new THREE.Group();
     private readonly lights: StationLights;
     private readonly signs: StationSigns;

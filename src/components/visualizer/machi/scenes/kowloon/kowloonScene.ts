@@ -14,7 +14,6 @@ import { vivid, type MachiArtResolver } from '../../engine/palette';
 import type { MachiScene, MachiSceneContent, MachiSceneContext, MachiSceneDefinition, MachiSceneFrame } from '../types';
 import { buildKowloonBar } from './bar';
 import { buildKowloonBlocks, type KowloonWindowBatch } from './blocks';
-import { KowloonJet, resolveKowloonJet } from './jet';
 import { KowloonLights } from './kowloonLights';
 import { KowloonSigns } from './kowloonSigns';
 import { BAR, BAR_SIGN, BLOCKS, HOLOGRAM, KOWLOON_VIEW, LEVEL, SCREEN, STALL, TICKER } from './layout';
@@ -24,8 +23,8 @@ import { buildKowloonStreet, kowloonFramingPoints, kowloonScreenFront, kowloonWi
 // 城寨酒吧（香港九龙城寨，赛博朋克）：左边、后排是高低错落的城寨楼（铁窗笼、冷气机、晾衫竹、加建小间，楼顶的
 // 水箱、天线、锅盖），后排正中一楼是酒吧（门头霓虹写曲名），楼面上挂着歌词大屏（当前行逐字点亮）与屏幕下沿的
 // 跑马灯（译文 / 曲名）；左边楼面伸出一串霓虹店招悬在巷子上空（一块竖灯箱写歌手），巷子里一台全息投影写下一句；
-// 右前是大排档和电线杆。会动的：坏灯管闪、日光灯管闪、点唱机随音乐明暗、全息的扫描线、镬气与沙井的白气、
-// 隔一阵低低掠过楼顶的客机。夜里霓虹的粉、青映在湿地上。
+// 右前是大排档和电线杆。会动的：坏灯管闪、日光灯管闪、点唱机随音乐明暗、全息的扫描线、镬气与沙井的白气。
+// 夜里霓虹的粉、青映在湿地上。
 
 const KOWLOON_ART = {
     wallA: '#6b6660',
@@ -73,8 +72,6 @@ const KOWLOON_ART = {
     bag: '#22282a',
     gas: '#c9452f',
     holoBase: '#2b2f36',
-    jetBody: '#e1e5ea',
-    jetEngine: '#9aa2ad',
     neonPink: '#ff4fb0',
     neonCyan: '#3fe8ff',
     neonAmber: '#ffb547',
@@ -84,14 +81,12 @@ const KOWLOON_ART = {
     pharmacy: '#c9ffe0',
     tube: '#c8f4ff',
     lampCool: '#e2f2ff',
-    navGreen: '#3dff7a',
 } as const;
 
 const resolveKowloonArt: MachiArtResolver = (_theme, _seed, base) => ({
     ...KOWLOON_ART,
-    // 酒架的背光、尾翼涂装跟主题走；店里的灯暖里带粉；全息是青色，向主题的 LED 色偏一点。
+    // 酒架的背光跟主题走；店里的灯暖里带粉；全息是青色，向主题的 LED 色偏一点。
     barBack: vivid(base.brand[0], 0.7, 0.55, 0.66),
-    jetTail: vivid(base.brand[0], 0.6, 0.4, 0.55),
     barLight: mixHexColors('#ff9fd0', base.interiorLight, 0.45),
     holo: mixHexColors('#62f2ff', base.led, 0.3),
 });
@@ -113,12 +108,6 @@ const KOWLOON_GLOWS: Record<string, MachiGlowSpec> = {
     lampHead: { key: 'lampCool', level: 3.0 },
     vending: { key: 'vendingLight', level: 0.75 },
     holoLens: { key: 'holo', level: 2.2 },
-    jetWindow: { key: 'interiorLight', level: 1.2 },
-    jetRed: { key: 'stopRed', level: 3.0 },
-    jetGreen: { key: 'navGreen', level: 3.0 },
-    jetStrobe: { key: 'lampCool', level: 4.0 },
-    jetBeacon: { key: 'stopRed', level: 3.0 },
-    jetLanding: { key: 'lampCool', level: 4.0 },
 };
 
 const blockOf = (name: string) => BLOCKS.find(block => block.name === name)!;
@@ -156,11 +145,11 @@ class KowloonScene implements MachiScene {
     readonly reflectionPlaneY = LEVEL.ground;
     readonly surfaces;
     readonly puddles;
+    readonly focusPoint = new THREE.Vector3(SCREEN.x, SCREEN.y, SCREEN.z);
     readonly rebuildsForSeed = true;
     private readonly world = new THREE.Group();
     private readonly lights: KowloonLights;
     private readonly signs: KowloonSigns;
-    private readonly jet: KowloonJet;
     private readonly steam: MachiSteam;
     private readonly lightCones: MachiLightCones;
     private readonly windows: KowloonWindowBatch;
@@ -209,7 +198,6 @@ class KowloonScene implements MachiScene {
         this.signs.group.traverse(object => {
             if (object instanceof THREE.Mesh) object.layers.enable(MACHI_REFLECT_LAYER);
         });
-        this.jet = new KowloonJet(materials);
         this.lights = new KowloonLights(blend, materials, street.lampHead, street.stallBulb);
         this.steam = new MachiSteam(materials, blend, [
             { position: street.wok, puffs: 5, period: 2.6, size: 0.45 },
@@ -218,7 +206,7 @@ class KowloonScene implements MachiScene {
         this.lightCones = new MachiLightCones(materials, blend, [
             { apex: street.lampHead, target: new THREE.Vector3(street.lampHead.x - 0.25, LEVEL.ground, street.lampHead.z + 0.1), radius: 1.3, gain: 1 },
         ], 'lampCool');
-        this.root.add(this.world, this.signs.group, this.jet.group, this.lights.group, this.steam.mesh, this.lightCones.mesh);
+        this.root.add(this.world, this.signs.group, this.lights.group, this.steam.mesh, this.lightCones.mesh);
 
         // 滴水：冷气机、大排档的帆布篷前沿、酒吧门头。
         const drips: MachiDrip[] = [...blocks.drips];
@@ -309,7 +297,6 @@ class KowloonScene implements MachiScene {
             artificial,
             daylight,
         });
-        this.jet.update(staticMode ? null : resolveKowloonJet(ambientTime, frame.seed), ambientTime, night);
         this.steam.update(ambientTime, frame.atmosphere.wind);
         this.lightCones.update(ambientTime, lamp * (1 - 0.6 * daylight));
         const atmosphere = frame.atmosphere;
@@ -338,7 +325,6 @@ class KowloonScene implements MachiScene {
         });
         geometries.forEach(geometry => geometry.dispose());
         this.signs.dispose();
-        this.jet.dispose();
         this.lights.dispose();
         this.steam.dispose();
         this.lightCones.dispose();

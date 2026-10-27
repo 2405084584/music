@@ -1,14 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { MACHI_BASE } from '@/components/visualizer/machi/engine/geometry/plinth';
 import { resolveKowloonHologramText } from '@/components/visualizer/machi/scenes/kowloon/hologram';
-import { resolveKowloonJet } from '@/components/visualizer/machi/scenes/kowloon/jet';
 import { resolveKowloonVerticalText } from '@/components/visualizer/machi/scenes/kowloon/kowloonSignPaint';
 import { resolveKowloonTickerText } from '@/components/visualizer/machi/scenes/kowloon/kowloonSigns';
 import {
     BLOCKS,
     HANGING_SIGNS,
     HOLOGRAM,
-    JET,
     KOWLOON_VIEW,
     leftFaceAt,
     POLE,
@@ -19,8 +17,7 @@ import type { Line } from '@/types';
 
 // test/unit/visualizer/machi/kowloon.test.ts
 // 城寨酒吧：全息写下一句（跳过空行，没有下一句用译文，曲名卡写曲名与歌手）、跑马灯写译文或曲名、竖招牌的竖排与
-// 转写、客机的航班表（确定、一个窗口最多一趟）；楼都在底座里、互不重叠，招牌从楼面伸出来，歌词屏朝着默认镜头，
-// 全息、大排档、电线杆都在巷子里。
+// 转写；楼都在底座里、互不重叠，招牌从楼面伸出来，歌词屏朝着默认镜头，全息、大排档、电线杆都在巷子里。
 
 const line = (text: string, start: number, extra: Partial<Line> = {}): Line => ({
     words: [{ text, startTime: start, endTime: start + 2 }],
@@ -66,30 +63,6 @@ describe('resolveKowloonVerticalText', () => {
     it('cuts long CJK names with an ellipsis', () => {
         const result = resolveKowloonVerticalText('一二三四五六七八九十');
         expect(result).toEqual({ mode: 'stack', glyphs: ['一', '二', '三', '四', '五', '六', '七', '…'] });
-    });
-});
-
-describe('resolveKowloonJet', () => {
-    it('is deterministic and flies at most one pass per 42-second window', () => {
-        let passes = 0;
-        for (let window = 0; window < 60; window += 1) {
-            const covered: number[] = [];
-            for (let t = window * 42; t < (window + 1) * 42; t += 0.25) {
-                const progress = resolveKowloonJet(t, 'song-1');
-                expect(resolveKowloonJet(t, 'song-1')).toBe(progress);
-                if (progress !== null) {
-                    expect(progress).toBeGreaterThanOrEqual(0);
-                    expect(progress).toBeLessThanOrEqual(1);
-                    covered.push(t);
-                }
-            }
-            if (covered.length) {
-                passes += 1;
-                expect(covered[covered.length - 1]! - covered[0]!).toBeLessThanOrEqual(JET.duration + 0.25);
-            }
-        }
-        expect(passes).toBeGreaterThan(20);
-        expect(passes).toBeLessThan(60);
     });
 });
 

@@ -114,10 +114,10 @@ export class MachiPost {
     }
 
     /**
-     * 画一帧。墨线门槛跟着每个像素代表的世界尺寸走，缩放后线不变粗也不消失；景深的对焦深度是镜头到目标点的距离，
-     * 放大时景深变浅（越近越“微缩”）。
+     * 画一帧。墨线门槛跟着每个像素代表的世界尺寸走，缩放后线不变粗也不消失；centerDistance 是镜头到画面中心（目标点）
+     * 的距离，雾的远近按它；lens.focus 是对焦深度（离镜头的距离）。
      */
-    render(pixelWorldSize: number, focusDistance: number, atmosphere: MachiAtmosphereFrame, lens: Omit<MachiLensSettings, 'focus'>) {
+    render(pixelWorldSize: number, centerDistance: number, atmosphere: MachiAtmosphereFrame, lens: MachiLensSettings) {
         const camera = this.camera;
         const range = camera.far - camera.near;
         const uniforms = this.atmosphere.material.uniforms;
@@ -131,14 +131,14 @@ export class MachiPost {
         (uniforms.uCloudColor!.value as THREE.Color).copy(atmosphere.cloudColor);
         uniforms.uCloudAmount!.value = atmosphere.cloudAmount;
         uniforms.uHaze!.value = atmosphere.haze;
-        (uniforms.uHazeRange!.value as THREE.Vector2).set(focusDistance - camera.near - 8, focusDistance - camera.near + 14);
+        (uniforms.uHazeRange!.value as THREE.Vector2).set(centerDistance - camera.near - 8, centerDistance - camera.near + 14);
         uniforms.uLightning!.value = atmosphere.lightning;
         (uniforms.uGlowA!.value as THREE.Vector4).copy(atmosphere.glowA);
         (uniforms.uGlowColorA!.value as THREE.Color).copy(atmosphere.glowColorA);
         (uniforms.uGlowB!.value as THREE.Vector4).copy(atmosphere.glowB);
         (uniforms.uGlowColorB!.value as THREE.Color).copy(atmosphere.glowColorB);
         (uniforms.uWind!.value as THREE.Vector2).copy(atmosphere.wind);
-        this.lens.configure({ ...lens, focus: focusDistance - camera.near, stars: atmosphere.stars }, range, atmosphere.time);
+        this.lens.configure({ ...lens, focus: lens.focus - camera.near, stars: atmosphere.stars }, range, atmosphere.time);
         this.renderer.setRenderTarget(this.scene.target);
         this.renderer.clear();
         this.renderer.render(this.sceneGraph, camera);

@@ -1,27 +1,49 @@
+import { numberWithin } from '../tuningDefinition';
 import { hashVisualizerSeed } from '../visualizerSeedHash';
 import {
     DEFAULT_MACHI_TUNING,
+    DEFAULT_MACHI_VIEW,
+    MACHI_CAMERA_MODES,
+    MACHI_DOF_LIMITS,
+    MACHI_FOCUS_MODES,
     MACHI_SCENE_IDS,
     MACHI_TIMES_OF_DAY,
+    MACHI_VIEW_LIMITS,
     MACHI_WEATHERS,
+    type MachiCameraView,
     type MachiSceneId,
     type MachiTuning,
 } from './types';
 
 // src/components/visualizer/machi/machiTuning.ts
 // 町景 tuning 的归一化：存档、导入、同步、设置面板都经 normalizeMachiTuning 补齐字段、认不得的值回默认
-// （以后删掉的场景也回“自动”）。“自动”场景按 seed 选也在这里（纯函数，运行时与单测共用）。
+// （以后删掉的场景也回“自动”），数值夹进各自的范围。“自动”场景按 seed 选也在这里（纯函数，运行时与单测共用）。
 
 const SCENE_CHOICES: MachiTuning['scene'][] = ['auto', ...MACHI_SCENE_IDS];
+
+/** 自定义视角：每项夹进范围，缺的、坏的回默认。 */
+export const normalizeMachiView = (raw: unknown): MachiCameraView => {
+    const input = raw && typeof raw === 'object' ? raw as Partial<Record<keyof MachiCameraView, unknown>> : {};
+    const field = (key: keyof MachiCameraView) => numberWithin(input[key], DEFAULT_MACHI_VIEW[key], MACHI_VIEW_LIMITS[key].min, MACHI_VIEW_LIMITS[key].max);
+    return { azimuth: field('azimuth'), elevation: field('elevation'), zoom: field('zoom'), panX: field('panX'), panZ: field('panZ') };
+};
 
 /** 任何存下来的值 → 完整、合法的 tuning。 */
 export const normalizeMachiTuning = (raw: unknown): MachiTuning => {
     const input = { ...DEFAULT_MACHI_TUNING, ...(raw && typeof raw === 'object' ? raw as Partial<MachiTuning> : {}) };
     const d = DEFAULT_MACHI_TUNING;
+    const within = (key: keyof typeof MACHI_DOF_LIMITS) => numberWithin(input[key], d[key], MACHI_DOF_LIMITS[key].min, MACHI_DOF_LIMITS[key].max);
     return {
         scene: SCENE_CHOICES.includes(input.scene) ? input.scene : d.scene,
         timeOfDay: MACHI_TIMES_OF_DAY.includes(input.timeOfDay) ? input.timeOfDay : d.timeOfDay,
         weather: MACHI_WEATHERS.includes(input.weather) ? input.weather : d.weather,
+        camera: MACHI_CAMERA_MODES.includes(input.camera) ? input.camera : d.camera,
+        view: normalizeMachiView(input.view),
+        dof: within('dof'),
+        dofRange: within('dofRange'),
+        tiltShift: within('tiltShift'),
+        focus: MACHI_FOCUS_MODES.includes(input.focus) ? input.focus : d.focus,
+        focusOffset: within('focusOffset'),
     };
 };
 
