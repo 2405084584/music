@@ -114,8 +114,11 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
                 staticMode: latest.staticMode,
                 showText: latest.showText,
                 previewMode: isPreviewMode,
-                // 自定义视角下拖动停稳了：新视角存进 tuning（宿主经 onVisualizerTuningChange 存）。
-                onViewChange: view => latestRef.current.onVisualizerTuningChange?.({ camera: 'custom', view } satisfies Partial<MachiTuning>),
+                // 自定义视角下拖动停稳了：新视角存进 tuning 里这个场景的那一份（宿主经 onVisualizerTuningChange 存）。
+                onViewChange: (view, scene) => {
+                    const latest = latestRef.current;
+                    latest.onVisualizerTuningChange?.({ camera: 'custom', views: { ...latest.machiTuning.views, [scene]: view } } satisfies Partial<MachiTuning>);
+                },
                 fallbackIcons: MACHI_FALLBACK_ICONS,
                 onContextLost: () => setContextEpoch(epoch => epoch + 1),
                 signal,

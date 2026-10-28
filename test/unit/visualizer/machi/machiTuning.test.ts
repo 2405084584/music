@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeMachiTuning, resolveMachiQualityPreset, resolveMachiSceneId } from '@/components/visualizer/machi/machiTuning';
-import { DEFAULT_MACHI_QUALITY, DEFAULT_MACHI_TUNING, DEFAULT_MACHI_VIEW, MACHI_QUALITY_PRESET_IDS, MACHI_QUALITY_PRESETS, MACHI_SCENE_IDS } from '@/components/visualizer/machi/types';
+import { DEFAULT_MACHI_QUALITY, DEFAULT_MACHI_TUNING, DEFAULT_MACHI_VIEW, DEFAULT_MACHI_VIEWS, MACHI_QUALITY_PRESET_IDS, MACHI_QUALITY_PRESETS, MACHI_SCENE_IDS } from '@/components/visualizer/machi/types';
 
 // test/unit/visualizer/machi/machiTuning.test.ts
-// 町景的设置：存下来的值认不得就回默认、数值夹进范围；画质每项认不得的回默认，预设由细项推出来；
+// 町景的设置：存下来的值认不得就回默认、数值夹进范围；自定义视角每个场景一份（以前共用的一份拿来给每个场景）；
+// 画质每项认不得的回默认，预设由细项推出来；
 // “自动”场景按 seed 选，同一首歌总是同一个。
 
 describe('normalizeMachiTuning', () => {
@@ -14,11 +15,29 @@ describe('normalizeMachiTuning', () => {
         expect(normalizeMachiTuning({ scene: 'konbini', timeOfDay: 'dusk', weather: 'fog' })).toEqual({ ...DEFAULT_MACHI_TUNING, scene: 'konbini', timeOfDay: 'dusk', weather: 'fog' });
     });
 
-    it('keeps a custom view inside the camera limits', () => {
-        const tuning = normalizeMachiTuning({ camera: 'custom', view: { azimuth: 120, elevation: -40, zoom: 9, panX: 2.5, panZ: 'far' } });
+    it('keeps a custom view for each scene inside the camera limits', () => {
+        const tuning = normalizeMachiTuning({ camera: 'custom', views: { station: { azimuth: 120, elevation: -40, zoom: 9, panX: 2.5, panZ: 'far' }, kowloon: 'wide', beach: {} } });
         expect(tuning.camera).toBe('custom');
-        expect(tuning.view).toEqual({ azimuth: 75, elevation: -12, zoom: 2.8, panX: 2.5, panZ: 0 });
-        expect(normalizeMachiTuning({ camera: 'orbit', view: null })).toMatchObject({ camera: 'default', view: DEFAULT_MACHI_VIEW });
+        expect(tuning.views).toEqual({
+            konbini: DEFAULT_MACHI_VIEW,
+            station: { azimuth: 75, elevation: -12, zoom: 2.8, panX: 2.5, panZ: 0 },
+            kowloon: DEFAULT_MACHI_VIEW,
+        });
+        expect(normalizeMachiTuning({ camera: 'orbit', views: null })).toMatchObject({ camera: 'default', views: DEFAULT_MACHI_VIEWS });
+    });
+
+    it('gives the old shared view to every scene', () => {
+        const view = { azimuth: -20, elevation: 6, zoom: 1.6, panX: 1.5, panZ: -0.5 };
+        const tuning = normalizeMachiTuning({ camera: 'custom', view });
+        expect(tuning.views).toEqual({ konbini: view, station: view, kowloon: view });
+        expect(tuning).not.toHaveProperty('view');
+        // 已经有各场景的视角时不再看旧的那份。
+        expect(normalizeMachiTuning({ view, views: { konbini: view } }).views).toEqual({ konbini: view, station: DEFAULT_MACHI_VIEW, kowloon: DEFAULT_MACHI_VIEW });
+    });
+
+    it('keeps the camera drift switch', () => {
+        expect(normalizeMachiTuning({ motion: true }).motion).toBe(true);
+        expect(normalizeMachiTuning({ motion: 'yes' }).motion).toBe(false);
     });
 
     it('clamps the depth of field and falls back to centre focus', () => {

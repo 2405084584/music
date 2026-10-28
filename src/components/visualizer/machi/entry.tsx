@@ -1,5 +1,6 @@
 import React from 'react';
-import { cycleValue, QuickControlChip } from '../../shared/QuickControlChip';
+import { Orbit } from 'lucide-react';
+import { cycleValue, QuickControlChip, QuickControlToggle } from '../../shared/QuickControlChip';
 import { defineVisualizer, type VisualizerQuickControlsProps } from '../definition';
 import MachiSettingsPanel, {
     MACHI_CAMERA_LABEL_KEYS,
@@ -17,7 +18,7 @@ const VisualizerMachi = React.lazy(() => import('./VisualizerMachi'));
 // Registers 町景 (Machi), an experimental three.js style: procedural miniature dioramas of a Japanese town (a
 // convenience-store street corner for now) whose signs carry the lyrics — the current line lit up word by word on
 // an LED screen, the next line on an LED ticker, the song on the shop signs. The scene, time of day and weather are
-// tuning (each can be "auto"), and so are a pinned camera view and the depth of field; the theme's colours and icons
+// tuning (each can be "auto"), and so are a pinned camera view per scene, a slow camera drift and the depth of field; the theme's colours and icons
 // repaint the "chain".
 export default defineVisualizer({
     mode: 'machi',
@@ -73,6 +74,13 @@ export default defineVisualizer({
                     title={`${t('options.machiCameraMode')}: ${camera}`}
                     onClick={() => onTuningChange({ camera: cycleValue(MACHI_CAMERA_MODES, tuning.camera) })}
                 />
+                <QuickControlToggle
+                    active={tuning.motion}
+                    label={t('options.machiCameraMotion')}
+                    onToggle={() => onTuningChange({ motion: !tuning.motion })}
+                >
+                    <Orbit size={14} />
+                </QuickControlToggle>
             </>
         );
     },

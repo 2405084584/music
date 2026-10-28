@@ -72,7 +72,7 @@ export const BOARD = {
 export const KONBINI_VIEW = {
     azimuth: 45 * DEG,
     elevation: 31 * DEG,
-    zoom: 1.4,
+    zoom: 1.58,
 } as const;
 
 /** 道具的位置。 */

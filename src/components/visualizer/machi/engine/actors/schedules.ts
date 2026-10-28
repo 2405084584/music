@@ -9,7 +9,8 @@ export interface MachiLane {
     to: readonly [x: number, z: number];
 }
 
-export const MACHI_CAR_SPEED = 3.4;
+/** 车速（米/秒，约 23 km/h：住宅区里的车速）。 */
+export const MACHI_CAR_SPEED = 6.5;
 const CAR_WINDOW = 9.5;
 
 export interface MachiCarPass {

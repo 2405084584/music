@@ -1,6 +1,6 @@
 // src/components/visualizer/machi/types.ts
 // 町景的 tuning：哪个场景、什么时间、什么天气（三项都可以是“自动”：场景和天气按歌的 seed 选，时间跟本地时钟走），
-// 镜头（默认构图，或固定在自己调的视角上）与景深（强弱、清晰范围、移轴、对焦在哪），以及画质（分辨率、抗锯齿、阴影、
+// 镜头（默认构图，或固定在自己调的视角上，每个场景各存一份；可以开着缓慢的运镜）与景深（强弱、清晰范围、移轴、对焦在哪），以及画质（分辨率、抗锯齿、阴影、
 // 倒影、辉光、自动降级；面板上的高 / 平衡 / 低只是几套细项，不单独存）。
 
 /** 场景：便利店街角、加油站停车场、城寨酒吧。 */
@@ -13,7 +13,7 @@ export type MachiTimeOfDay = typeof MACHI_TIMES_OF_DAY[number];
 export const MACHI_WEATHERS = ['auto', 'clear', 'rain', 'snow', 'fog'] as const;
 export type MachiWeather = typeof MACHI_WEATHERS[number];
 
-/** 镜头：默认构图（拖动后过一会儿自己回正），或固定在自定义视角上（拖动后就停在那里并记住）。 */
+/** 镜头：默认构图（拖动后过一会儿自己回正），或固定在自定义视角上（拖动后就停在那里并记住，每个场景各一份）。 */
 export const MACHI_CAMERA_MODES = ['default', 'custom'] as const;
 export type MachiCameraMode = typeof MACHI_CAMERA_MODES[number];
 
@@ -22,8 +22,8 @@ export const MACHI_FOCUS_MODES = ['center', 'lyrics', 'manual'] as const;
 export type MachiFocusMode = typeof MACHI_FOCUS_MODES[number];
 
 /**
- * 自定义视角，相对各场景的默认构图（三个场景的默认朝向不同，存相对值换场景也合用）：
- * 水平转角与俯仰（度）、远近（默认缩放的倍数）、沿地面平移（米：左右、前后，按默认朝向）。
+ * 自定义视角，相对场景的默认构图：水平转角与俯仰（度）、远近（默认缩放的倍数）、沿地面平移（米：左右、前后，
+ * 按默认朝向）。每个场景各存一份。
  */
 export interface MachiCameraView {
     azimuth: number;
@@ -92,7 +92,10 @@ export interface MachiTuning {
     timeOfDay: MachiTimeOfDay;
     weather: MachiWeather;
     camera: MachiCameraMode;
-    view: MachiCameraView;
+    /** 各场景的自定义视角。 */
+    views: Record<MachiSceneId, MachiCameraView>;
+    /** 运镜：镜头在静止位置附近缓慢地转、推拉、平移（随歌曲暂停）。 */
+    motion: boolean;
     dof: number;
     dofRange: number;
     tiltShift: number;
@@ -103,12 +106,19 @@ export interface MachiTuning {
 
 export const DEFAULT_MACHI_VIEW: MachiCameraView = { azimuth: 0, elevation: 0, zoom: 1, panX: 0, panZ: 0 };
 
+export const DEFAULT_MACHI_VIEWS: Record<MachiSceneId, MachiCameraView> = {
+    konbini: DEFAULT_MACHI_VIEW,
+    station: DEFAULT_MACHI_VIEW,
+    kowloon: DEFAULT_MACHI_VIEW,
+};
+
 export const DEFAULT_MACHI_TUNING: MachiTuning = {
     scene: 'auto',
     timeOfDay: 'auto',
     weather: 'auto',
     camera: 'default',
-    view: DEFAULT_MACHI_VIEW,
+    views: DEFAULT_MACHI_VIEWS,
+    motion: false,
     dof: 1,
     dofRange: 1,
     tiltShift: 0.3,

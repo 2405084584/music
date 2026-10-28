@@ -340,7 +340,7 @@ class KonbiniScene implements MachiScene {
     }
 
     nextCar(from: number, seed: string | number, chance: number) {
-        for (let t = from; t < from + 120; t += 0.1) {
+        for (let t = from; t < from + 120; t += 0.04) {
             const car = resolveMachiCar(t, seed, KONBINI_LANES, chance);
             if (car && Math.abs(car.distance - LANE_REACH) < 0.3) return t;
         }

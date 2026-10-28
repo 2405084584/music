@@ -4,6 +4,7 @@ import {
     DEFAULT_MACHI_QUALITY,
     DEFAULT_MACHI_TUNING,
     DEFAULT_MACHI_VIEW,
+    DEFAULT_MACHI_VIEWS,
     MACHI_ANTIALIAS_MODES,
     MACHI_CAMERA_MODES,
     MACHI_DETAIL_LEVELS,
@@ -36,6 +37,15 @@ export const normalizeMachiView = (raw: unknown): MachiCameraView => {
     return { azimuth: field('azimuth'), elevation: field('elevation'), zoom: field('zoom'), panX: field('panX'), panZ: field('panZ') };
 };
 
+/**
+ * 各场景的自定义视角：每个场景按 normalizeMachiView 补齐。以前三个场景共用一份 view：没有 views 时拿它给每个场景。
+ */
+export const normalizeMachiViews = (raw: unknown, legacy?: unknown): Record<MachiSceneId, MachiCameraView> => {
+    const input = raw && typeof raw === 'object' ? raw as Partial<Record<MachiSceneId, unknown>> : null;
+    if (!input && legacy === undefined) return DEFAULT_MACHI_VIEWS;
+    return Object.fromEntries(MACHI_SCENE_IDS.map(id => [id, normalizeMachiView(input ? input[id] : legacy)])) as Record<MachiSceneId, MachiCameraView>;
+};
+
 /** 画质：每项认得的值留下，缺的、坏的回默认。 */
 export const normalizeMachiQuality = (raw: unknown): MachiQuality => {
     const input = raw && typeof raw === 'object' ? raw as Partial<Record<keyof MachiQuality, unknown>> : {};
@@ -61,7 +71,8 @@ export const resolveMachiQualityPreset = (quality: MachiQuality): MachiQualityPr
 
 /** 任何存下来的值 → 完整、合法的 tuning。 */
 export const normalizeMachiTuning = (raw: unknown): MachiTuning => {
-    const input = { ...DEFAULT_MACHI_TUNING, ...(raw && typeof raw === 'object' ? raw as Partial<MachiTuning> : {}) };
+    const stored = raw && typeof raw === 'object' ? raw as Partial<MachiTuning> & { view?: unknown } : {};
+    const input = { ...DEFAULT_MACHI_TUNING, ...stored };
     const d = DEFAULT_MACHI_TUNING;
     const within = (key: keyof typeof MACHI_DOF_LIMITS) => numberWithin(input[key], d[key], MACHI_DOF_LIMITS[key].min, MACHI_DOF_LIMITS[key].max);
     return {
@@ -69,7 +80,8 @@ export const normalizeMachiTuning = (raw: unknown): MachiTuning => {
         timeOfDay: MACHI_TIMES_OF_DAY.includes(input.timeOfDay) ? input.timeOfDay : d.timeOfDay,
         weather: MACHI_WEATHERS.includes(input.weather) ? input.weather : d.weather,
         camera: MACHI_CAMERA_MODES.includes(input.camera) ? input.camera : d.camera,
-        view: normalizeMachiView(input.view),
+        views: normalizeMachiViews(stored.views, stored.view),
+        motion: typeof input.motion === 'boolean' ? input.motion : d.motion,
         dof: within('dof'),
         dofRange: within('dofRange'),
         tiltShift: within('tiltShift'),

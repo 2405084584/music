@@ -41,6 +41,7 @@ import { createMachiSnowUniforms, setMachiSnowRoofs } from './engine/snow';
 import { resolveMachiSceneId } from './machiTuning';
 import { MACHI_SCENES } from './scenes';
 import type { MachiScene, MachiSceneContent, MachiSceneContext } from './scenes/types';
+import { reportMachiShownScene, withdrawMachiShownScene } from './shownScene';
 import type { MachiCameraView, MachiQuality, MachiSceneId, MachiTuning } from './types';
 
 // src/components/visualizer/machi/createMachiRuntime.ts
@@ -73,8 +74,8 @@ export interface MachiRuntimeOptions {
     showText: boolean;
     /** 样式架小图、主题乐园预览：低分辨率、不接拖拽。 */
     previewMode: boolean;
-    /** 自定义视角下拖动停稳了：新视角（相对默认构图）交给外面存进 tuning。 */
-    onViewChange?: (view: MachiCameraView) => void;
+    /** 自定义视角下拖动停稳了：新视角（相对默认构图）与它属于哪个场景，交给外面存进 tuning。 */
+    onViewChange?: (view: MachiCameraView, scene: MachiSceneId) => void;
     /** 主题没有图标时招牌上的兜底图标。 */
     fallbackIcons: readonly string[];
     /** WebGL 上下文丢了：外壳重建运行时。 */
@@ -265,9 +266,9 @@ export class MachiRuntime {
         this.ground.setReflections(quality.reflectionScale > 0);
         this.post = new MachiPost(this.renderer, this.scene, this.camera.camera, quality);
         this.scene.background = this.sky.texture;
-        this.camera.onCommit = view => this.options.onViewChange?.(view);
+        this.camera.onCommit = view => this.options.onViewChange?.(view, this.stageId);
         this.camera.onWake = () => this.wake();
-        this.camera.setCustom(options.tuning.camera === 'custom' ? options.tuning.view : null);
+        this.camera.setMotion(options.tuning.motion);
         this.mountScene(sceneId);
 
         if (!options.previewMode) this.camera.attach(canvas);
@@ -332,7 +333,8 @@ export class MachiRuntime {
         setMachiSnowRoofs(this.snow, stage.weather.roofs);
         this.atmosphere.wind.set(Math.sin(stage.weather.windYaw), Math.cos(stage.weather.windYaw)).multiplyScalar(0.06);
         this.reflection.planeY = stage.reflectionPlaneY;
-        this.camera.setFraming(stage.framing);
+        this.camera.setFraming(stage.framing, this.customView(id));
+        reportMachiShownScene(this, id);
         stage.setContent(this.sceneContent(palette));
         this.boardTarget = null;
         this.environmentDirty = true;
@@ -375,6 +377,11 @@ export class MachiRuntime {
             this.fade = Math.min(1, this.fade + step / SCENE_FADE_IN);
             if (this.fade === 1) this.fadePhase = 'idle';
         }
+    }
+
+    /** 某个场景的自定义视角；默认视角时是 null。 */
+    private customView(id: MachiSceneId) {
+        return this.tuning.camera === 'custom' ? this.tuning.views[id] : null;
     }
 
     /** 正在画的场景，或淡出后马上要换上的场景。 */
@@ -516,7 +523,7 @@ export class MachiRuntime {
         this.lastFrameAt = now;
 
         this.stepFade(this.clock.realDelta);
-        this.camera.update(this.clock.realDelta);
+        this.camera.update(this.clock.realDelta, this.clock.delta);
         this.stepEnvironment(this.clock.realDelta);
         if (this.blend.step(this.clock.realDelta) || this.environmentDirty) {
             this.environmentDirty = false;
@@ -733,7 +740,7 @@ export class MachiRuntime {
         return tuning.focus === 'manual' ? center + tuning.focusOffset : center;
     }
 
-    /** 设置变了：场景不同就换场景；时间、天气渐变到新目标；镜头换到新视角；景深下一帧就用新值。 */
+    /** 设置变了：场景不同就换场景；时间、天气渐变到新目标；镜头换到这个场景的新视角、开关运镜；景深下一帧就用新值。 */
     setTuning(tuning: MachiTuning) {
         const previous = this.tuning;
         if (previous === tuning) return;
@@ -743,7 +750,8 @@ export class MachiRuntime {
             if (sceneId !== this.targetSceneId) this.requestScene(sceneId);
         }
         if (previous.timeOfDay !== tuning.timeOfDay || previous.weather !== tuning.weather) this.refreshEnvironmentTarget();
-        this.camera.setCustom(tuning.camera === 'custom' ? tuning.view : null);
+        this.camera.setCustom(this.customView(this.stageId));
+        this.camera.setMotion(tuning.motion);
         if (qualityKey(previous.quality) !== qualityKey(tuning.quality)) {
             // 换了画质设置：自动降级从这套设置重新开始。
             this.degrade = 0;
@@ -837,6 +845,7 @@ export class MachiRuntime {
         window.clearInterval(this.clockTimer);
         this.resizeObserver.disconnect();
         this.camera.dispose();
+        withdrawMachiShownScene(this);
         const canvas = this.renderer.domElement;
         canvas.removeEventListener('webglcontextlost', this.onContextLost);
         this.stage.dispose();

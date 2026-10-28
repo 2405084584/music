@@ -7,7 +7,8 @@ import type { MachiCameraView } from '../types';
 // 默认构图再拉近到场景给的缩放，目标点往上挪，保住画面上沿的招牌，裁掉的是画面下沿离镜头最近的底座角。
 // 可以拖拽旋转、滚轮 / 双指缩放、右键 / 双指沿地面平移（OrbitControls，限方位角默认视角 ±75°、俯角 20°–70°，
 // 平移不出底座太远）。默认视角下松手约 8 秒后缓回默认构图；自定义视角（相对默认构图的转角、俯仰、缩放倍数、平移）
-// 是镜头的静止位置：松手就停在那里，等镜头停稳后报给外面存起来。
+// 是镜头的静止位置：松手就停在那里，等镜头停稳后报给外面存起来。开着运镜时，镜头在静止位置附近缓慢地转、推拉、平移
+// （几道周期互不成倍数的慢正弦，按氛围时间走，随歌曲暂停）；一拖就停，镜头回到静止位置后再慢慢接着走。
 
 const DEG = Math.PI / 180;
 
@@ -22,6 +23,21 @@ export const MACHI_CAMERA_LIMITS = {
     pan: 5,
     idleReturnSeconds: 8,
 } as const;
+
+/** 运镜从静止到全幅（或关掉后回到静止位置）用的秒数（真实时间）。 */
+const DRIFT_RAMP_SECONDS = 4;
+
+/** 运镜在 time 秒（氛围时间）时相对静止位置的偏移：转角、俯仰（度）、缩放倍数、左右与前后平移（米）。 */
+export const resolveMachiDrift = (time: number): MachiCameraView => {
+    const wave = (period: number, phase: number) => Math.sin((time / period) * Math.PI * 2 + phase);
+    return {
+        azimuth: 15 * wave(67, 0) + 5 * wave(29, 1.3),
+        elevation: 4 * wave(47, 0.7),
+        zoom: Math.exp(0.08 * wave(41, 2.1)),
+        panX: 0.45 * wave(53, 0.4),
+        panZ: 0.3 * wave(71, 2.6),
+    };
+};
 
 export interface MachiView {
     azimuth: number;
@@ -78,6 +94,10 @@ export class MachiCamera {
     /** 自定义视角下松了手：等阻尼停稳再报。 */
     private commitPending = false;
     private readonly spherical = new THREE.Spherical();
+    /** 运镜：开没开、走到哪了（氛围时间）、此刻的幅度（0 静止位置，1 全幅）。 */
+    private motion = false;
+    private motionTime = 0;
+    private motionWeight = 0;
     /** 镜头有变化、需要补一帧（暂停时按需渲染用）。 */
     needsRender = true;
     /** 自定义视角下拖动停稳了：新视角（相对默认构图）交给外面存。 */
@@ -95,16 +115,24 @@ export class MachiCamera {
         return this.framing.view;
     }
 
-    /** 换场景：新的构图点与默认视角，镜头直接摆到静止位置（默认构图，或自定义视角）。 */
-    setFraming(framing: MachiCameraFraming) {
+    /** 换场景：新的构图点与默认视角、这个场景的自定义视角（null 是默认构图），镜头直接摆到静止位置。 */
+    setFraming(framing: MachiCameraFraming, custom: MachiCameraView | null) {
         this.framing = framing;
+        this.custom = custom;
         this.interacting = false;
         this.returning = false;
         this.commitPending = false;
         this.idleSince = 0;
         this.fitDefault();
         this.applyLimits();
-        this.place(this.restView(), this.restTarget());
+        this.settle();
+    }
+
+    /** 开关运镜：开了从静止位置慢慢走起来，关了慢慢回到静止位置。 */
+    setMotion(motion: boolean) {
+        if (motion === this.motion) return;
+        this.motion = motion;
+        this.needsRender = true;
     }
 
     /**
@@ -130,7 +158,7 @@ export class MachiCamera {
             this.needsRender = true;
             return;
         }
-        this.place(this.restView(), this.restTarget());
+        this.settle();
     }
 
     /** 按默认朝向把构图点投到镜头平面上，求目标点和半高。 */
@@ -206,11 +234,36 @@ export class MachiCamera {
         };
     }
 
-    private restTarget() {
+    /** 静止时的目标点：默认目标点加上自定义平移（再加上运镜的平移，一起夹在平移范围里）。 */
+    private restTarget(extraX = 0, extraZ = 0) {
         const custom = this.custom;
-        if (!custom) return this.base.clone();
+        if (!custom && extraX === 0 && extraZ === 0) return this.base.clone();
         const { right, back } = this.axes();
-        return this.base.clone().addScaledVector(right, custom.panX).addScaledVector(back, custom.panZ);
+        const limit = MACHI_CAMERA_LIMITS.pan;
+        const x = clamp((custom?.panX ?? 0) + extraX, -limit, limit);
+        const z = clamp((custom?.panZ ?? 0) + extraZ, -limit, limit);
+        return this.base.clone().addScaledVector(right, x).addScaledVector(back, z);
+    }
+
+    /** 摆到静止位置，开着运镜就叠上此刻的运镜偏移（按幅度）。转角、俯仰、缩放都夹在拖拽的范围里。 */
+    private settle() {
+        const rest = this.restView();
+        // 幅度按 smoothstep 缓起缓停。
+        const weight = this.motionWeight * this.motionWeight * (3 - 2 * this.motionWeight);
+        if (weight <= 0) {
+            this.place(rest, this.restTarget());
+            return;
+        }
+        const drift = resolveMachiDrift(this.motionTime);
+        const home = this.framing.view.azimuth;
+        const range = MACHI_CAMERA_LIMITS.azimuthRange;
+        // 拉得越近，平移在画面上显得越大：按相对默认构图的缩放收一收。
+        const panScale = weight * Math.min(1, this.framing.view.zoom / rest.zoom);
+        this.place({
+            azimuth: clamp(rest.azimuth + drift.azimuth * DEG * weight, home - range, home + range),
+            elevation: clamp(rest.elevation + drift.elevation * DEG * weight, MACHI_CAMERA_LIMITS.minElevation, MACHI_CAMERA_LIMITS.maxElevation),
+            zoom: clamp(rest.zoom * drift.zoom ** weight, MACHI_CAMERA_LIMITS.minZoom, MACHI_CAMERA_LIMITS.maxZoom),
+        }, this.restTarget(drift.panX * panScale, drift.panZ * panScale));
     }
 
     /** 此刻的视角，相对默认构图（自定义视角存的就是它）。 */
@@ -247,7 +300,7 @@ export class MachiCamera {
 
     /** 回到静止位置（调试钩子用）。 */
     placeAtRest() {
-        this.place(this.restView(), this.restTarget());
+        this.settle();
     }
 
     /** 当前视角。 */
@@ -289,6 +342,8 @@ export class MachiCamera {
 
     private readonly onStart = () => {
         this.interacting = true;
+        // 镜头交给拖拽：运镜停在这里，回到静止位置后从 0 幅度重新走起来。
+        this.motionWeight = 0;
         this.returning = false;
         this.commitPending = false;
         this.onWake?.();
@@ -321,18 +376,32 @@ export class MachiCamera {
         this.target.copy(next);
     }
 
-    /** 镜头还在动（阻尼、回正、等着报新视角）：暂停时也要继续出帧。 */
+    /** 镜头停在静止位置上（没在拖、没在回正、没在等报新视角、也没在等闲置回正）：运镜只在这时走。 */
+    private get still() {
+        return !this.interacting && !this.returning && !this.commitPending && this.idleSince === 0;
+    }
+
+    /** 运镜的幅度还在升降（开了正在走起来，或关了正在回去）。 */
+    private get ramping() {
+        return this.motion ? this.still && this.motionWeight < 1 : this.motionWeight > 0;
+    }
+
+    /** 镜头还在动（阻尼、回正、等着报新视角、运镜幅度在升降）：暂停时也要继续出帧。 */
     get busy() {
-        return this.interacting || this.returning || this.commitPending || this.needsRender;
+        return this.interacting || this.returning || this.commitPending || this.needsRender || this.ramping;
     }
 
     /**
-     * 每帧推进：阻尼、闲置回正（只在默认视角下）、自定义视角下停稳后报新视角。realDelta 是真实时间（镜头属于界面，
-     * 不随歌曲暂停）。
+     * 每帧推进：阻尼、闲置回正（只在默认视角下）、运镜、自定义视角下停稳后报新视角。realDelta 是真实时间（镜头属于界面，
+     * 不随歌曲暂停，运镜幅度的升降也按它）；ambientDelta 是氛围时间，运镜按它走，歌曲暂停时停住。
      */
-    update(realDelta: number) {
+    update(realDelta: number, ambientDelta: number) {
         const controls = this.controls;
-        if (!controls) return;
+        // 预览不接拖拽，只有运镜。
+        if (!controls) {
+            this.stepMotion(realDelta, ambientDelta);
+            return;
+        }
         const home = this.framing.view;
         if (!this.custom && !this.interacting && !this.returning && this.idleSince > 0 && performance.now() - this.idleSince > MACHI_CAMERA_LIMITS.idleReturnSeconds * 1000) {
             const view = this.view();
@@ -356,6 +425,7 @@ export class MachiCamera {
             this.place(done ? rest : next, done ? restTarget : target);
             if (done) this.returning = false;
         }
+        this.stepMotion(realDelta, ambientDelta);
         this.clampPan();
         const moved = controls.update();
         if (moved) this.target.copy(controls.target);
@@ -363,6 +433,22 @@ export class MachiCamera {
             this.commitPending = false;
             this.custom = this.offset();
             this.onCommit?.(this.custom);
+        }
+    }
+
+    /** 运镜：镜头停在静止位置上时，幅度慢慢升到 1（关了就降回 0），按氛围时间走；别的时候幅度归零，交给拖拽和回正。 */
+    private stepMotion(realDelta: number, ambientDelta: number) {
+        if (!this.still) {
+            this.motionWeight = 0;
+            return;
+        }
+        if (this.motion) this.motionTime += ambientDelta;
+        const weight = this.motionWeight;
+        const step = realDelta / DRIFT_RAMP_SECONDS;
+        this.motionWeight = this.motion ? Math.min(1, weight + step) : Math.max(0, weight - step);
+        // 幅度在 0 上不动就不用摆（默认视角的闲置、自定义视角都不受打扰）；从有到无那一帧还要摆回静止位置。
+        if (weight > 0 || this.motionWeight > 0) {
+            if (this.motionWeight !== weight || (this.motion && ambientDelta > 0)) this.settle();
         }
     }
 

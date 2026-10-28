@@ -117,5 +117,5 @@ export const VENDING = { x: 4.95, z: -1.95 } as const;
 export const KOWLOON_VIEW = {
     azimuth: 30 * DEG,
     elevation: 30 * DEG,
-    zoom: 1.35,
+    zoom: 1.55,
 } as const;

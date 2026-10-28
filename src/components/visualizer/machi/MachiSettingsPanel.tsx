@@ -3,6 +3,7 @@ import { Button, Group, PictureGrid, Row, Segmented, type SettingsGroupDef } fro
 import type { VisualizerSettingsPanelProps } from '../definition';
 import { percent, SliderRow, times, ToggleRow } from '../panelRows';
 import { resolveMachiQualityPreset } from './machiTuning';
+import { getMachiShownScene, subscribeMachiShownScene } from './shownScene';
 import {
     DEFAULT_MACHI_TUNING,
     DEFAULT_MACHI_VIEW,
@@ -25,6 +26,7 @@ import {
     type MachiFocusMode,
     type MachiQuality,
     type MachiQualityPresetId,
+    type MachiSceneId,
     type MachiTimeOfDay,
     type MachiTuning,
     type MachiWeather,
@@ -32,7 +34,7 @@ import {
 
 // src/components/visualizer/machi/MachiSettingsPanel.tsx
 // 町景的设置面板：场景（线稿小图，不放实时预览）、时间、天气三项，每项都有“自动”；镜头（默认视角，或自定义视角
-// 与它的五个滑块）；景深（强度、清晰范围、移轴、对焦在哪）；画质（高 / 平衡 / 低三套预设和各个细项，细项和哪套都对不上
+// 与它的五个滑块，每个场景各一份：场景“自动”时多一排选调哪个场景的，默认是正在画的那个；运镜开关）；景深（强度、清晰范围、移轴、对焦在哪）；画质（高 / 平衡 / 低三套预设和各个细项，细项和哪套都对不上
 // 就多出一个选中的“自定义”，预设不单独存）。快捷控件里的胶囊用同一套文案。
 
 const SCENE_GROUP: SettingsGroupDef = { id: 'vis-machi-scene', titleKey: 'options.machiSceneSection' };
@@ -169,6 +171,12 @@ const MachiSettingsPanel: React.FC<VisualizerSettingsPanelProps<MachiTuning>> = 
     onSliderCommit,
 }) => {
     const custom = tuning.camera === 'custom';
+    // 滑块调哪个场景的视角：选定了场景就是它；“自动”时默认是正在画的那个，也可以自己挑。
+    const shownScene = React.useSyncExternalStore(subscribeMachiShownScene, getMachiShownScene, getMachiShownScene);
+    const [pickedScene, setPickedScene] = React.useState<MachiSceneId | null>(null);
+    const viewScene = tuning.scene !== 'auto' ? tuning.scene : pickedScene ?? shownScene ?? MACHI_SCENE_IDS[0];
+    const view = tuning.views[viewScene];
+    const setView = (next: MachiCameraView) => onTuningChange?.({ views: { ...tuning.views, [viewScene]: next } });
     const quality = tuning.quality;
     const preset = resolveMachiQualityPreset(quality);
     const setQuality = (patch: Partial<MachiQuality>) => onTuningChange?.({ quality: { ...quality, ...patch } });
@@ -212,7 +220,7 @@ const MachiSettingsPanel: React.FC<VisualizerSettingsPanelProps<MachiTuning>> = 
             <Group
                 def={CAMERA_GROUP}
                 action={custom ? (
-                    <Button variant="quiet" onClick={() => onTuningChange?.({ view: DEFAULT_MACHI_VIEW })}>
+                    <Button variant="quiet" onClick={() => setView(DEFAULT_MACHI_VIEW)}>
                         {t('options.machiViewReset')}
                     </Button>
                 ) : undefined}
@@ -224,20 +232,35 @@ const MachiSettingsPanel: React.FC<VisualizerSettingsPanelProps<MachiTuning>> = 
                         onChange={camera => onTuningChange?.({ camera })}
                     />
                 </Row>
+                {custom && tuning.scene === 'auto' && (
+                    <Row label={t('options.machiViewScene')} note={t('options.machiViewSceneHint')}>
+                        <Segmented<MachiSceneId>
+                            value={viewScene}
+                            options={MACHI_SCENE_IDS.map(scene => ({ value: scene, label: t(MACHI_SCENE_LABEL_KEYS[scene]) }))}
+                            onChange={setPickedScene}
+                        />
+                    </Row>
+                )}
                 {custom && VIEW_SLIDERS.map(slider => (
                     <SliderRow
                         key={slider.key}
                         label={t(slider.labelKey)}
-                        value={tuning.view[slider.key]}
+                        value={view[slider.key]}
                         min={MACHI_VIEW_LIMITS[slider.key].min}
                         max={MACHI_VIEW_LIMITS[slider.key].max}
                         step={slider.step}
                         format={slider.format}
-                        onChange={value => onTuningChange?.({ view: { ...tuning.view, [slider.key]: value } })}
+                        onChange={value => setView({ ...view, [slider.key]: value })}
                         onDragStart={onSliderPointerDown}
                         onDragEnd={onSliderCommit}
                     />
                 ))}
+                <ToggleRow
+                    label={t('options.machiCameraMotion')}
+                    note={t('options.machiCameraMotionHint')}
+                    checked={tuning.motion}
+                    onChange={motion => onTuningChange?.({ motion })}
+                />
             </Group>
 
             <Group def={DOF_GROUP}>

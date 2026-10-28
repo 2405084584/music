@@ -113,5 +113,5 @@ export const LOT_LAMP = { x: 0.9, z: 1.85, height: 5.0, arm: 1.2 } as const;
 export const STATION_VIEW = {
     azimuth: 25 * DEG,
     elevation: 30 * DEG,
-    zoom: 1.32,
+    zoom: 1.48,
 } as const;
