@@ -185,7 +185,7 @@ class StationScene implements MachiScene {
             }
             if (variation.keiTruck) {
                 const car = buildParkedCar(materials, 'kei', 'carKei', 'KeiTruck', shadow);
-                car.group.position.set(KEI_TRUCK.x, LEVEL.apron, KEI_TRUCK.z);
+                car.group.position.set(KEI_TRUCK.x, LEVEL.road, KEI_TRUCK.z);
                 car.group.rotation.y = -Math.PI / 2;
                 cars.push(car.group);
             }

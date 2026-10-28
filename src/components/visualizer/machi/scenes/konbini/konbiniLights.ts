@@ -108,7 +108,8 @@ export class KonbiniLights {
             pool('vendingLight', 0.32, [1.4, 2.4], [PROPS.vending.x + PROPS.vending.depth + 0.6, (PROPS.vending.z[0] + PROPS.vending.z[1]) / 2], true),
         ];
         pools[2]!.rotation.y = Math.PI / 2;
-        pools[3]!.position.y = LEVEL.road + 0.006;
+        // 路灯那圈在路面上：要高过斑马线的白漆（+6mm）和排水沟盖板（顶在 +12mm），同高的话镜头一转就一道道地闪。
+        pools[3]!.position.y = LEVEL.road + 0.016;
 
         this.group.add(...this.interior, ...this.spill, this.street, this.street.target, this.vending, ...pools);
         this.sync();

@@ -203,16 +203,16 @@ export const buildMotelSign = (materials: MachiMaterials) => {
     const neonTrim = materials.glow('motelNeon');
     root.add(cylinderAt(materials.toon('motelPole'), 0.11, M.height, [0, LEVEL.road, 0], { radiusTop: 0.09, segments: 12, name: 'Pole' }));
     root.add(cylinderAt(materials.toon('concrete'), 0.3, 0.2, [0, LEVEL.road, 0], { segments: 14, name: 'Footing' }));
-    // 竖灯箱：「MOTEL」五个字母竖排。
+    // 竖灯箱：「MOTEL」五个字母竖排。灯箱都比杆子粗（杆子半径约 0.1），杆子整根藏在灯箱里，不会从字面上穿出来。
     const tall = { w: 0.86, h: 2.5, y0: M.height - 2.55, x: 0.38 };
-    root.add(boxAt(back, [tall.w, tall.h, 0.2], [tall.x, tall.y0, 0], { radius: 0.06, name: 'Tall' }));
-    root.add(boxAt(neonTrim, [tall.w + 0.06, 0.04, 0.24], [tall.x, tall.y0 + tall.h, 0], { radius: 0.01, name: 'Tall/trim', castShadow: false }));
-    root.add(boxAt(neonTrim, [tall.w + 0.06, 0.04, 0.24], [tall.x, tall.y0 - 0.04, 0], { radius: 0.01, name: 'Tall/trim', castShadow: false }));
+    root.add(boxAt(back, [tall.w, tall.h, 0.26], [tall.x, tall.y0, 0], { radius: 0.06, name: 'Tall' }));
+    root.add(boxAt(neonTrim, [tall.w + 0.06, 0.04, 0.3], [tall.x, tall.y0 + tall.h, 0], { radius: 0.01, name: 'Tall/trim', castShadow: false }));
+    root.add(boxAt(neonTrim, [tall.w + 0.06, 0.04, 0.3], [tall.x, tall.y0 - 0.04, 0], { radius: 0.01, name: 'Tall/trim', castShadow: false }));
     // 名字横牌与 VACANCY 小灯箱。
     const name = { w: 2.1, h: 0.62, y0: tall.y0 - 0.85, x: 0.55 };
-    root.add(boxAt(back, [name.w, name.h, 0.18], [name.x, name.y0, 0], { radius: 0.05, name: 'Name' }));
+    root.add(boxAt(back, [name.w, name.h, 0.26], [name.x, name.y0, 0], { radius: 0.05, name: 'Name' }));
     const vacancy = { w: 1.3, h: 0.34, y0: name.y0 - 0.5, x: 0.7 };
-    root.add(boxAt(back, [vacancy.w, vacancy.h, 0.16], [vacancy.x, vacancy.y0, 0], { radius: 0.04, name: 'Vacancy' }));
+    root.add(boxAt(back, [vacancy.w, vacancy.h, 0.24], [vacancy.x, vacancy.y0, 0], { radius: 0.04, name: 'Vacancy' }));
     // 箭头：从竖灯箱右边弯下来，指向地面（扁平的形状，正面一圈灯泡另挂）。
     const arrow = new THREE.Shape();
     const ax = tall.x + tall.w / 2;
@@ -256,9 +256,9 @@ export const buildMotelSign = (materials: MachiMaterials) => {
     }
     return {
         group: root,
-        tall: face(tall.x, tall.y0 + tall.h / 2, tall.w - 0.12, tall.h - 0.12, 0.105),
-        name: face(name.x, name.y0 + name.h / 2, name.w - 0.1, name.h - 0.1, 0.095),
-        vacancy: face(vacancy.x, vacancy.y0 + vacancy.h / 2, vacancy.w - 0.08, vacancy.h - 0.06, 0.085),
+        tall: face(tall.x, tall.y0 + tall.h / 2, tall.w - 0.12, tall.h - 0.12, 0.135),
+        name: face(name.x, name.y0 + name.h / 2, name.w - 0.1, name.h - 0.1, 0.135),
+        vacancy: face(vacancy.x, vacancy.y0 + vacancy.h / 2, vacancy.w - 0.08, vacancy.h - 0.06, 0.125),
         bulbs,
         rotationY,
         glow: world(0.8, tall.y0 + 0.5, 0.6),

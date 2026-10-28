@@ -12,13 +12,16 @@ export const LEVEL = {
     apron: 0.1,
 } as const;
 
-/** 前面一条路（沿 x），一直通到底座边上；停车场在路后面，中间一道路缘、两处出入口。 */
+/**
+ * 前面一条路（沿 x），一直通到底座边上；停车场在路后面，中间一道路缘、两处出入口。路宽按开过的车定：两条车道各宽约 1.6m
+ * （车宽 1.46m），外侧车道的车身离底座边缘还有一点，不会被底座的裁切面切掉一边。
+ */
 export const ROAD = {
-    z0: 3.5,
+    z0: 2.35,
     z1: 6,
     curb: 0.16,
-    /** 两条车道的中线（靠左行驶）：近的一条往 +x，远的一条往 -x。 */
-    lanes: [4.15, 5.35] as const,
+    /** 两条车道的中线（靠左行驶）：近的一条往 +x，远的一条往 -x。各在两条边线与中线之间居中。 */
+    lanes: [3.36, 4.99] as const,
     /** 路缘在这两段断开，是出入口。 */
     gaps: [[-1.2, 0.8], [1.8, 3.6]] as const,
 } as const;
@@ -79,7 +82,7 @@ export const TRUCK_SCREEN = {
 /** 前排的停车位：车头朝 +z（朝路），车身沿 z。 */
 export const STALLS = {
     x: [-4.75, -2.85, -0.95] as const,
-    z: 0.0,
+    z: -0.3,
     width: 1.9,
     depth: 3.6,
 } as const;
@@ -87,14 +90,14 @@ export const STALLS = {
 /** 车的尺寸（沿车长、车宽、高）。 */
 export const CAR = { length: 3.2, width: 1.42, height: 1.38 } as const;
 
-/** 加油机旁停着的一辆（沿 x，车头朝 +x），与罩棚前排的空地上一辆轻卡。 */
+/** 加油机旁停着的一辆（沿 x，车头朝 +x），与罩棚前面、加油区外的空地上一辆轻卡（沿 x，让开右边的价格立柱）。 */
 export const PUMP_CAR = { x: 3.65, z: -1.75 } as const;
-export const KEI_TRUCK = { x: 4.35, z: 1.35 } as const;
+export const KEI_TRUCK = { x: 3.1, z: 1.1 } as const;
 
-/** 路边的价格立柱、汽车旅馆的高立牌、场地灯。 */
-export const PYLON = { x: 5.35, z: 2.75, height: 4.1, width: 1.0 } as const;
-export const MOTEL_SIGN = { x: -5.25, z: 2.75, height: 6.4 } as const;
-export const LOT_LAMP = { x: 0.9, z: 2.85, height: 5.0, arm: 1.2 } as const;
+/** 路缘后面一排：价格立柱、汽车旅馆的高立牌、场地灯。 */
+export const PYLON = { x: 5.35, z: 1.75, height: 4.1, width: 1.0 } as const;
+export const MOTEL_SIGN = { x: -5.25, z: 1.85, height: 6.4 } as const;
+export const LOT_LAMP = { x: 0.9, z: 1.85, height: 5.0, arm: 1.2 } as const;
 
 /** 默认视角：从正前偏右 25° 斜俯视（方位角按 three 的球坐标，从 +z 转向 +x）。 */
 export const STATION_VIEW = {

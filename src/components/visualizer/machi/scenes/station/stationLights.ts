@@ -55,7 +55,8 @@ export class StationLights {
             const material = materials.track(new THREE.MeshBasicMaterial({ color: 0xffffff, map: strip, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
             const geometry = new THREE.PlaneGeometry(size[0], size[1]).rotateX(-Math.PI / 2);
             const result = new THREE.Mesh(geometry, material);
-            result.position.set(at[0], at[1] + 0.006, at[2]);
+            // 高过地上的白线（+6mm）和井盖一类的薄件：同高的话镜头一转就一道道地闪。
+            result.position.set(at[0], at[1] + 0.016, at[2]);
             result.renderOrder = 1;
             result.name = `Pool/${source}`;
             this.pools.push({ mesh: result, material, key, level, source });

@@ -93,7 +93,8 @@ export const buildParkedCar = (
         if (kind !== 'kei') parts.push(boxAt(body, [0.14, 0.08, 0.06], [side * (width / 2 + 0.05), 0.92, half * 0.36], { radius: 0.02, name: 'Mirror' }));
     });
     const axle = half - (kind === 'kei' ? 0.5 : 0.62);
-    [[-1, axle], [1, axle], [-1, -axle], [1, -axle]].forEach(([side, z]) => parts.push(wheel(materials, side! * (width / 2 - 0.1), z!)));
+    // 轮子外侧比车身侧面凸出一点：齐平的话轮胎和车身侧面同在一个面上，会互相闪。
+    [[-1, axle], [1, axle], [-1, -axle], [1, -axle]].forEach(([side, z]) => parts.push(wheel(materials, side! * (width / 2 - 0.085), z!)));
     // 车下一块软影（车停着也有落地感，不靠阴影图）。
     const shadow = mesh(new THREE.PlaneGeometry(width + 0.5, length + 0.5).rotateX(-Math.PI / 2), shadowMaterial, { name: 'Shadow', castShadow: false, receiveShadow: false });
     shadow.position.y = 0.004;

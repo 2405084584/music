@@ -29,9 +29,10 @@ export const buildKowloonBar = (materials: MachiMaterials, seed: string | number
         boxSpan(materials.toon('barWall'), x0, x0 + 0.04, LEVEL.floor, ceiling, back, glassZ, { radius: 0, name: 'Wall' }),
         boxSpan(materials.toon('barWall'), x1 - 0.04, x1, LEVEL.floor, ceiling, back, glassZ, { radius: 0, name: 'Wall' }),
         boxSpan(materials.toon('barWall'), x0, x1, LEVEL.floor, ceiling, back, back + 0.04, { radius: 0, name: 'Wall' }),
-        // 门面：两侧墙垛、玻璃下的踢脚、玻璃上沿的横梁。
-        boxSpan(frame, x0 - 0.2, x0, 0, ceiling, glassZ - 0.02, BAR.front, { radius: 0.01, name: 'Pier' }),
-        boxSpan(frame, x1, x1 + 0.2, 0, ceiling, glassZ - 0.02, BAR.front, { radius: 0.01, name: 'Pier' }),
+        // 门面：两侧墙垛、玻璃下的踢脚、玻璃上沿的横梁。墙垛包住楼的墙角，前面和外侧都比楼面凸出一点，
+        // 里侧伸进门洞一点：跟楼的墙面重合的话两种颜色会互相闪。
+        boxSpan(frame, x0 - 0.22, x0 + 0.01, 0, ceiling, glassZ - 0.02, BAR.front + 0.03, { radius: 0.01, name: 'Pier' }),
+        boxSpan(frame, x1 - 0.01, x1 + 0.22, 0, ceiling, glassZ - 0.02, BAR.front + 0.03, { radius: 0.01, name: 'Pier' }),
         boxSpan(frame, x0, BAR.door[0], 0, 0.36, glassZ - 0.06, glassZ + 0.04, { radius: 0.01, name: 'Kick' }),
         boxSpan(frame, x0, x1, 2.32, 2.4, glassZ - 0.06, glassZ + 0.04, { radius: 0.01, name: 'Head' }),
         // 门口一级台阶。

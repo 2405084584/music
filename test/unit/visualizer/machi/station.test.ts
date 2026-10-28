@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { MACHI_BASE } from '@/components/visualizer/machi/engine/geometry/plinth';
-import { CANOPY, CAR, STALLS, STATION_VIEW, TRUCK, TRUCK_SCREEN } from '@/components/visualizer/machi/scenes/station/layout';
+import { MACHI_TRAFFIC_CAR } from '@/components/visualizer/machi/engine/actors/traffic';
+import { CANOPY, CAR, KEI_TRUCK, LOT_LAMP, MOTEL_SIGN, PYLON, ROAD, STALLS, STATION_VIEW, TRUCK, TRUCK_SCREEN } from '@/components/visualizer/machi/scenes/station/layout';
 import { resolveStationVariation } from '@/components/visualizer/machi/scenes/station/stationSeed';
 
 // test/unit/visualizer/machi/station.test.ts
 // 加油站停车场：按歌变的东西是确定的、前排至少一辆出租车（顶灯要滚歌词）；货车屏幕与出租车顶灯都朝 +z，
-// 离默认镜头方向不超过 30°；车位、货车、罩棚互不重叠，都在底座里。
+// 离默认镜头方向不超过 30°；车位、货车、罩棚互不重叠，都在底座里；开过的车整辆在路上、两条车道并得下两辆车；
+// 路缘后面那排立牌、灯杆、轻卡不压到路，也不碰停着的车。
 
 describe('station variation', () => {
     it('is deterministic and always parks at least one taxi', () => {
@@ -44,6 +46,38 @@ describe('station layout', () => {
             expect(box.z1).toBeLessThanOrEqual(half);
         });
         boxes.forEach((a, i) => boxes.slice(i + 1).forEach(b => {
+            const overlap = a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1;
+            expect(overlap, `${a.name} overlaps ${b.name}`).toBe(false);
+        }));
+    });
+
+    it('fits the passing car on its lane, inside the base and off the curb', () => {
+        const half = MACHI_TRAFFIC_CAR.width / 2;
+        ROAD.lanes.forEach(lane => {
+            expect(lane - half).toBeGreaterThan(ROAD.z0);
+            expect(lane + half).toBeLessThan(Math.min(ROAD.z1, MACHI_BASE.half));
+        });
+        expect(ROAD.lanes[1] - ROAD.lanes[0]).toBeGreaterThan(MACHI_TRAFFIC_CAR.width);
+    });
+
+    it('keeps the row behind the curb off the road and clear of the parked cars', () => {
+        const curb = ROAD.z0 - ROAD.curb;
+        const stallFront = STALLS.z + 0.15 + CAR.length / 2 + 0.04;
+        // 各件的 z 范围（立柱的底座转过一点，按外接框算；轻卡沿 x 停，z 方向是车宽）。
+        const row = [
+            { name: 'pylon', x0: PYLON.x - 0.65, x1: PYLON.x + 0.65, z0: PYLON.z - 0.4, z1: PYLON.z + 0.4 },
+            { name: 'motel', x0: MOTEL_SIGN.x - 0.3, x1: MOTEL_SIGN.x + 0.3, z0: MOTEL_SIGN.z - 0.3, z1: MOTEL_SIGN.z + 0.3 },
+            { name: 'lamp', x0: LOT_LAMP.x - 0.13, x1: LOT_LAMP.x + 0.13, z0: LOT_LAMP.z - 0.13, z1: LOT_LAMP.z + 0.13 },
+            { name: 'kei', x0: KEI_TRUCK.x - 1.54, x1: KEI_TRUCK.x + 1.54, z0: KEI_TRUCK.z - 0.68, z1: KEI_TRUCK.z + 0.68 },
+        ];
+        row.forEach(item => {
+            expect(item.z1, `${item.name} reaches the curb`).toBeLessThan(curb);
+            STALLS.x.forEach(x => {
+                const overlap = item.x0 < x + CAR.width / 2 && x - CAR.width / 2 < item.x1 && item.z0 < stallFront;
+                expect(overlap, `${item.name} hits stall at ${x}`).toBe(false);
+            });
+        });
+        row.forEach((a, i) => row.slice(i + 1).forEach(b => {
             const overlap = a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1;
             expect(overlap, `${a.name} overlaps ${b.name}`).toBe(false);
         }));
