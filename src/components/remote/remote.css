@@ -82,6 +82,19 @@
   color: rgb(var(--remote-ink));
 }
 
+/* Grown to show the queue (RemoteQueue.css): the card keeps to the edge away from it. At the
+   window's own height that is where it already is, so the side is set before the window grows. */
+.remote-window[data-queue='down'] .remote-card {
+  top: 4px;
+  margin-top: 0;
+}
+
+.remote-window[data-queue='up'] .remote-card {
+  top: auto;
+  bottom: 4px;
+  margin-top: 0;
+}
+
 /* Everything of the card in use, at the place and size it has always had. */
 .remote-face {
   position: absolute;
