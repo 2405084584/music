@@ -58,6 +58,13 @@ export const useRemoteQueue = ({ queueLength, pointerInside, isDisplayOnly, isSh
     const isOpen = requested && !isDisplayOnly;
     const wantedHeight = remoteQueueWantedHeight(queueLength);
 
+    // A page that loads (a reload in development) starts closed: the window must not stay grown.
+    useEffect(() => {
+        void window.electron?.setRemoteControlQueueExpansion?.(null)?.catch(error => (
+            console.warn('[RemoteQueue] Failed to reset the window height', error)
+        ));
+    }, []);
+
     // Turning click-through on closes the queue for good, not only for as long as it lasts.
     useEffect(() => {
         if (isDisplayOnly) {
@@ -89,8 +96,13 @@ export const useRemoteQueue = ({ queueLength, pointerInside, isDisplayOnly, isSh
                     await nextFrame();
                     if (cancelled) return;
                 }
-                const applied = await resize(wantedHeight);
-                if (!cancelled) setExpansion(applied);
+                // The side the card is anchored for goes along: a window that grew meanwhile, or a queue
+                // that got longer, does not make the main process pick the other side by itself.
+                const applied = await resize(wantedHeight, { direction: directionRef.current ?? undefined });
+                if (cancelled) return;
+                // It only picks another side when the anchored one has no room left; follow it.
+                if (applied) setDirection(applied.direction);
+                setExpansion(applied);
                 return;
             }
 

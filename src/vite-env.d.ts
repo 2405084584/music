@@ -1027,7 +1027,7 @@ declare global {
       /** Null when the main process cannot tell (a Wayland session): the page then uses its own mouse events. */
       getRemoteControlPointerInside: () => Promise<boolean | null>;
       onRemoteControlPointerInside: (callback: (inside: boolean) => void) => () => void;
-      setRemoteControlQueueExpansion: (wantedHeight: number | null, options?: { preview?: boolean }) => Promise<import('./types/remoteControl').RemoteQueueExpansion | null>;
+      setRemoteControlQueueExpansion: (wantedHeight: number | null, options?: { preview?: boolean; direction?: 'down' | 'up' }) => Promise<import('./types/remoteControl').RemoteQueueExpansion | null>;
       publishRemoteControlSnapshot: (snapshot: ElectronRemoteControlSnapshot) => Promise<boolean>;
       getRemoteControlSnapshot: () => Promise<ElectronRemoteControlSnapshot | null>;
       sendRemoteControlCommand: (command: ElectronRemoteControlCommand) => Promise<boolean>;

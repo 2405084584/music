@@ -5163,6 +5163,12 @@ function clearPendingWindowPlaybackHandoffRequests() {
   }
 }
 
+/** The snapshot without its queue, for sends that do not change it (the remote keeps the last one). */
+function withoutRemoteControlQueue(snapshot) {
+  const { queue: _queue, ...rest } = snapshot;
+  return rest;
+}
+
 function patchRemoteControlSnapshot(patch) {
   if (!latestRemoteControlSnapshot) {
     return;
@@ -5173,7 +5179,7 @@ function patchRemoteControlSnapshot(patch) {
     ...latestRemoteControlSnapshot,
     ...patch,
   };
-  sendRemoteControlSnapshot(latestRemoteControlSnapshot);
+  sendRemoteControlSnapshot(withoutRemoteControlQueue(latestRemoteControlSnapshot));
 }
 
 function publishMainWindowClickThroughState() {
@@ -5421,9 +5427,10 @@ function resizeRemoteControlWindow(win, bounds) {
 /**
  * Shows the queue `wantedHeight` px tall (null hides it); returns where it went, or null. With
  * `preview` it only says where it would go: the page anchors the card on that side first, so the
- * window can then grow without the card moving.
+ * window can then grow without the card moving. `direction` is the side the page anchored for; it
+ * is kept while it has room, as is the side of a queue already shown.
  */
-function setRemoteControlQueueExpansion(win, wantedHeight, preview = false) {
+function setRemoteControlQueueExpansion(win, wantedHeight, { preview = false, direction = null } = {}) {
   if (!win || win.isDestroyed()) {
     return null;
   }
@@ -5435,7 +5442,7 @@ function setRemoteControlQueueExpansion(win, wantedHeight, preview = false) {
       cardBounds,
       onWayland ? null : screen.getDisplayMatching(cardBounds).workArea,
       wantedHeight,
-      remoteControlQueueExpansion?.direction ?? null,
+      remoteControlQueueExpansion?.direction ?? direction,
     )
     : null;
   if (preview) {
@@ -7585,7 +7592,10 @@ ipcMain.handle('remote-control-set-queue-expansion', (event, wantedHeight, optio
   return setRemoteControlQueueExpansion(
     remoteControlWindow,
     typeof wantedHeight === 'number' ? wantedHeight : null,
-    options?.preview === true,
+    {
+      preview: options?.preview === true,
+      direction: options?.direction === 'up' || options?.direction === 'down' ? options.direction : null,
+    },
   );
 });
 
@@ -7609,7 +7619,10 @@ ipcMain.handle('remote-control-publish-snapshot', (event, snapshot) => {
     }
     : null;
   if (latestRemoteControlSnapshot) {
-    sendRemoteControlSnapshot(latestRemoteControlSnapshot);
+    // The remote keeps the queue it was last sent: forward it only when this publish carried it.
+    sendRemoteControlSnapshot(Object.prototype.hasOwnProperty.call(snapshot, 'queue')
+      ? latestRemoteControlSnapshot
+      : withoutRemoteControlQueue(latestRemoteControlSnapshot));
   }
   return true;
 });

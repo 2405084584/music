@@ -130,12 +130,12 @@ const RemoteControlApp: React.FC = () => {
         window.localStorage.setItem(REMOTE_BACKGROUND_MODE_STORAGE_KEY, backgroundMode);
     }, [backgroundMode]);
 
-    // A focused control that leaves with the sheet sends no blur; without this the window would stay lit.
+    // A focused control that leaves with the sheet or the queue sends no blur; without this the window would stay lit.
     useEffect(() => {
-        if (!sheet.isOpen && !document.activeElement?.matches(':focus-visible')) {
+        if ((!sheet.isOpen || !queue.isShown) && !document.activeElement?.matches(':focus-visible')) {
             setHasKeyboardFocus(false);
         }
-    }, [sheet.isOpen]);
+    }, [sheet.isOpen, queue.isShown]);
 
     const navigateTrack = (direction: 'prev' | 'next') => {
         handoff.recordNavIntent(direction);

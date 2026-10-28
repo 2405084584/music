@@ -104,10 +104,12 @@ const RemoteQueue: React.FC<RemoteQueueProps> = ({
         return () => observer.disconnect();
     }, []);
 
-    // Once measured: the audible song in the middle, once.
+    // Once measured: the audible song in the middle, once. Shorter than a row is not measured yet:
+    // the list can mount before the page has its grown height (the reply to the resize may come
+    // first), and centring in a list of height 0 would leave the song at the top.
     const centeredRef = useRef(false);
     useEffect(() => {
-        if (listHeight === null || centeredRef.current) return undefined;
+        if (listHeight === null || listHeight < REMOTE_QUEUE_ROW_HEIGHT || centeredRef.current) return undefined;
         const frame = requestAnimationFrame(() => {
             centeredRef.current = true;
             if (currentRow >= 0) listRef.current?.scrollToRow({ index: currentRow, align: 'center', behavior: 'instant' });

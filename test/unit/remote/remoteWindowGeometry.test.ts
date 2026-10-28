@@ -173,6 +173,12 @@ describe('remote window queue expansion', () => {
         expect(getRemoteControlQueueExpansion(windowAt(600, 250), workArea, 340, 'up')).toEqual({ direction: 'up', height: 250 });
     });
 
+    it('leaves the anchored side when it no longer holds the search field and three rows', () => {
+        // 100 below, 756 above: a short queue went down, then the queue got long.
+        expect(getRemoteControlQueueExpansion(windowAt(600, 756), workArea, 88)).toEqual({ direction: 'down', height: 88 });
+        expect(getRemoteControlQueueExpansion(windowAt(600, 756), workArea, 340, 'down')).toEqual({ direction: 'up', height: 340 });
+    });
+
     it('grows down, uncut, without a work area (Wayland)', () => {
         expect(getRemoteControlQueueExpansion(windowAt(0, 0), null, 340)).toEqual({ direction: 'down', height: 340 });
     });

@@ -106,15 +106,25 @@ function resolveRemoteControlWindowPosition(saved, workAreas, expandCover = true
  */
 const REMOTE_CONTROL_QUEUE_MIN_HEIGHT = 160;
 
+/** @typedef {'down' | 'up'} RemoteControlQueueDirection */
+/** @typedef {{ direction: RemoteControlQueueDirection, height: number }} RemoteControlQueueExpansion */
+
 /**
  * Where the window grows to show the play queue: down when the work area has room below the
  * window, else up when it has room above, else towards the larger room, the queue cut to fit it
  * (but never below REMOTE_CONTROL_QUEUE_MIN_HEIGHT). `bounds` is the window without the queue.
- * A queue already shown passes its `direction`: it keeps growing that way, only its height
- * changes. Without a work area (Wayland: a client is not told where its window is) it grows down,
+ * `preferred` is the side the page has anchored the card for (a queue already shown, or one the
+ * page asked where to put): it is kept, only the height changing, as long as that side still holds
+ * the search field and three rows; otherwise the side is chosen afresh rather than run off the
+ * screen. Without a work area (Wayland: a client is not told where its window is) it grows down,
  * uncut.
+ * @param {{ x: number, y: number, width: number, height: number }} bounds
+ * @param {{ x: number, y: number, width: number, height: number } | null} workArea
+ * @param {number} wantedHeight
+ * @param {RemoteControlQueueDirection | null} [preferred]
+ * @returns {RemoteControlQueueExpansion}
  */
-function getRemoteControlQueueExpansion(bounds, workArea, wantedHeight, direction = null) {
+function getRemoteControlQueueExpansion(bounds, workArea, wantedHeight, preferred = null) {
   const wanted = Math.max(0, Math.round(wantedHeight));
   if (!workArea) {
     return { direction: 'down', height: wanted };
@@ -124,20 +134,29 @@ function getRemoteControlQueueExpansion(bounds, workArea, wantedHeight, directio
     down: workArea.y + workArea.height - (bounds.y + bounds.height),
     up: bounds.y - workArea.y,
   };
-  const side = direction
-    ?? (room.down >= wanted ? 'down' : room.up >= wanted ? 'up' : room.up > room.down ? 'up' : 'down');
-  const fit = Math.max(Math.min(wanted, REMOTE_CONTROL_QUEUE_MIN_HEIGHT), room[side]);
-  return { direction: side, height: Math.min(wanted, fit) };
+  const least = Math.min(wanted, REMOTE_CONTROL_QUEUE_MIN_HEIGHT);
+  const side = preferred && room[preferred] >= least
+    ? preferred
+    : room.down >= wanted ? 'down' : room.up >= wanted ? 'up' : room.up > room.down ? 'up' : 'down';
+  return { direction: side, height: Math.min(wanted, Math.max(least, room[side])) };
 }
 
-/** The window's bounds with the queue shown (`expansion`) or not (null), from where the card sits. */
+/**
+ * The window's bounds with the queue shown (`expansion`) or not (null), from where the card sits.
+ * @param {{ x: number, y: number }} cardPosition
+ * @param {RemoteControlQueueExpansion | null} expansion
+ */
 function getRemoteControlWindowBounds(cardPosition, expansion) {
   const height = REMOTE_CONTROL_WINDOW_HEIGHT + (expansion ? expansion.height : 0);
   const y = expansion && expansion.direction === 'up' ? cardPosition.y - expansion.height : cardPosition.y;
   return { x: cardPosition.x, y, width: REMOTE_CONTROL_WINDOW_WIDTH, height };
 }
 
-/** Where the window sits without the queue, from where it sits with it: the spot that is remembered. */
+/**
+ * Where the window sits without the queue, from where it sits with it: the spot that is remembered.
+ * @param {{ x: number, y: number }} bounds
+ * @param {RemoteControlQueueExpansion | null} expansion
+ */
 function getRemoteControlCardPosition(bounds, expansion) {
   return {
     x: bounds.x,

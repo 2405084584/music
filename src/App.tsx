@@ -2176,7 +2176,7 @@ export default function App() {
         saveCurrentQueueAsLocalPlaylist,
     });
     // 遥控窗口展开的队列：点歌、下一首播放、移到末尾、移除，走浮岛的同一组队列动作。
-    useRemoteQueueCommands(wallToolsHost, isNowPlayingControlDisabledRef);
+    useRemoteQueueCommands(wallToolsHost, playQueue, isNowPlayingControlDisabledRef);
     const homeModel = useHomeModel({
         account: accountController,
         activeProvider,
