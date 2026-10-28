@@ -402,7 +402,7 @@ export class MachiRuntime {
         this.size = { width: w, height: h };
         this.renderer.setSize(w, h, false);
         this.camera.setAspect(w, h);
-        this.post.setSize(w, h, this.pixelRatio);
+        this.post.setSize();
         this.reflection.setSize(w * this.pixelRatio, h * this.pixelRatio);
         this.wantsFrame = true;
     }

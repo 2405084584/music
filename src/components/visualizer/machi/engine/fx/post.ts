@@ -58,6 +58,7 @@ export class MachiPost {
     private readonly lens: MachiLensPass;
     private readonly fxaa: FXAAPass;
     private readonly smaa: SMAAPass;
+    private readonly bufferSize = new THREE.Vector2();
     private bloomAllowed = true;
     private streaksAllowed = true;
     private bloomStrength = 0.5;
@@ -89,10 +90,16 @@ export class MachiPost {
         this.setQuality(quality);
     }
 
-    setSize(width: number, height: number, pixelRatio: number) {
-        this.composer.setPixelRatio(pixelRatio);
+    /**
+     * 跟着画布改尺寸（在 renderer.setSize 之后调）。所有缓冲区都用画布的整数像素尺寸：画布是 floor(宽 × 像素比)，
+     * 合成器自己乘像素比会得到带小数的尺寸（墨线的取样步长按它算），场景目标原来又是四舍五入，像素比让尺寸带小数时
+     * （Windows 125% 缩放、画质 75%）三者差出一列，按最近邻取深度的墨线在画面中段多跳一个纹素，画出一整条竖线。
+     */
+    setSize() {
+        const { x: width, y: height } = this.renderer.getDrawingBufferSize(this.bufferSize);
+        this.composer.setPixelRatio(1);
         this.composer.setSize(width, height);
-        this.scene.target.setSize(Math.max(1, Math.round(width * pixelRatio)), Math.max(1, Math.round(height * pixelRatio)));
+        this.scene.target.setSize(width, height);
     }
 
     /** 换画质：MSAA 采样数变了就换一张场景目标（氛围、镜头 pass 读的是同一个 MachiSceneTarget，自动跟上）。 */
