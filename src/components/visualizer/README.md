@@ -228,6 +228,23 @@ Visualizer 消费已解析的 `LyricData` / `Line` / `Word`，不负责解析 `.
 - `lumiereDarkField.ts`：暗场底（tuning `darkField`，浅色主题保底 0.94）是运行时铺在所有场景与片尾卡之下的一整块底，不随段落转场变化；光场着色器的 `uDark` 在 folia 里恒为 0
 - 歌词字号由光位的文字区决定，通用字号设置只影响底部字幕
 
+### Nebbia
+
+雾笺：下雨天公交车起雾的车窗上，手指一笔一笔写歌词，写过的地方透出窗外的雨夜街景，过一会儿重新起雾。原型在 `feat/fog-write-prototype` 分支的 `dev/prototypes/fog-write/`（独立 HTML，参数可调），这里是接入版。快速定位：
+
+- `nebbia/VisualizerNebbia.tsx`：React shell / subtitle；`createNebbiaRuntime.ts`：运行时（WebGL2，建一次，换歌、tuning、主题就地推进去；暂停时停循环、拖进度补一帧；静态模式照常写字，窗外匀速走，不颠簸、没有小雨点）；`nebbiaSceneClock.ts`：窗外时钟（float32 精度：走过 1000 秒后换歌时归零，一首连放满 3600 秒才硬回绕）；`nebbiaFrameUniforms.ts`：主着色器每帧的 uniform
+- `nebbiaGl.ts`（`nebbiaGlUtils.ts`：编译链接、建纹理）+ `nebbiaShaders.ts` + `nebbiaSceneGlsl.ts`：一个全屏着色器。窗外夜景（楼群、霓虹、路灯、倒影、车灯、雨）两层模糊版本先在 1/4 分辨率的 RGBA16F 上算好（雾的预渲染，没有 `EXT_color_buffer_float` 或那个 FBO 拼不完整时主画面自己算），主画面合成雾、擦痕、水珠折射；水珠是 raindrop-fx（MIT）的法线精灵，实例化画进两张水珠纹理
+- `nebbiaChars.ts`：`Line` → 逐字 `{ ch, t, d }`（`buildLineGraphemeTimeline`），emoji 换成 lucide 图标，词分组走 `segmentLyricWords`（所以 `usesWordSegmentation`）；句尾随手画的图标取主题 `lyricsIcons`
+- `nebbiaBlocks.ts` + `nebbiaCompositions.ts` + `nebbiaLayout.ts`：照商籁的主词 / 副主词 / 虚词和横条、十字、竖柱、刊头等构图排整首，避开这句出现时还没消失的句子；用户字号是排版字号的倍数
+- `nebbiaScene.ts`：每个字的位置、手写变形、水珠，出现方式（快的句子慢慢显现），让位（后一句要写到这句位置时这句提前起雾）；`nebbiaWipe.ts`：手指抹掉
+- `nebbiaMask.ts` + `nebbiaInk.ts`：每帧在半分辨率 2D 画布上画擦痕遮罩（按演唱时长一笔一笔写）
+- `nebbiaGlyphs.ts`：字形来源依次是 lucide 图标、AnimCJK 笔顺（`nebbiaStrokes.ts`）、主题字体的骨架追踪（`nebbiaSkeleton.ts`）。笔顺数据是 Arphic Public License，能否随应用分发未定，不进仓库：用原型的 `tools/build-strokes.mjs` 生成 `public/nebbia-strokes.json`（已 gitignore），没有时中日文也走骨架，笔顺是估的
+- `nebbiaHits.ts`：雨点打窗，每 20 ms 一格、格内随机只由歌和格号决定。智能动感模式的「疏雨轻车」（`entry.tsx` 的 `beatEffects`，`source: 'stems'`，两个分项各一条滑杆）开着、这首歌分析过时，雨点跟人声：跟 HTDemucs 分出的人声轨走（`services/analysis/vocalEnvelope.ts`，每帧按 `getBeatFxHeard().key` 取），小雨点按逐帧响度在 ±1.5 秒内的范围归一后的能量落，大雨点砸在起音上，和原型一样；雨点强度乘小雨点密度和大雨点大小（大雨点按 1 倍排好，画的时候才乘，拖滑杆不重排），拉到 0 不下雨。否则退回播放器的人声频段（`audioBands.vocal`，自适应归一），大雨点在六成的词开唱时砸
+- `nebbiaDrizzleRide.ts`：疏雨轻车每帧读的那份（开关、两条强度、人声轨包络，推着鼓点颠簸）。`nebbiaDrumBumps.ts`：疏雨轻车的鼓点颠簸。这首歌有鼓点（`getDrumHits`，同一趟分离）时车只在底鼓上颠（力度 ≥ 0.35，至少隔 0.3 秒，幅度随力度，乘这一项的强度和 tuning 的颠簸），不再随机颠；拖进度只挪游标不补颠。没鼓、没分析完时照旧随机颠
+- `nebbiaSpot.ts`：两盏聚光灯追正在唱的字（目标沿字连续移动 + 临界阻尼弹簧 + 平滑时钟，避免一抽一抽）
+- `nebbiaPalette.ts`：主题 → 窗外配色（背景压成夜色，强调色是聚光灯和霓虹）
+- 歌词字号由排版决定，通用字号设置作为倍数；不画共用背景（`background: false`）
+
 ### Hanabi
 
 花火：日式歌词 PV——色块字、烟花 MG，镜头之间整个世界持续上升。移植自 lumisynth 的 `src/packs/hanabi`（设计说明在 lumisynth 的 `docs/HANABI.md`）。快速定位：

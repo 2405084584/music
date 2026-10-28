@@ -5,7 +5,7 @@ import { decodeTrackAtRate } from './trackBytes';
 
 // src/services/analysis/trackStemRun.ts
 // A track's stem run: its bytes decoded once and one stem pass (stemPass.ts) over them, for every
-// task that reads its stems - the drum hits (drumHits.ts) today, a reader of any other stem tomorrow.
+// task that reads its stems - the drum hits (drumHits.ts) and 雾笺's voice (vocalStemRun.ts) today.
 // What it reads and keeps is the task's own; the run only owns the track, the pass and when they stop.
 //
 // A task (StemTask) is opened once the track is decoded and gives its readers, then its answer: from

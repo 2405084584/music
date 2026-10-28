@@ -4,7 +4,7 @@ import { separateStemSegment, STEM_SOURCES, stemSegmentStarts, stemSegmentWindow
 
 // src/services/analysis/stemPass.ts
 // One pass over a track's htdemucs segments for whatever reads its stems: the drum hits (drumHits.ts)
-// today, any stem's reader tomorrow. The model gives all four stems for every segment, so a segment
+// and 雾笺's voice (vocalStemRun.ts) today. The model gives all four stems for every segment, so a segment
 // is separated once for every reader that needs it, whichever stems they read.
 //
 // A reader (StemReader) names its stem, the next segment it needs and a window to lay that stem
