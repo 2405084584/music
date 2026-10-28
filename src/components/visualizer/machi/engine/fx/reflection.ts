@@ -23,7 +23,13 @@ export class MachiReflection {
     constructor(planeY: number, scale: number) {
         this.planeY = planeY;
         this.scale = scale;
-        this.target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: true });
+        // 带 mipmap：湿路面按粗糙度取糊一点的那一级，倒影不至于像镜子。
+        this.target = new THREE.WebGLRenderTarget(1, 1, {
+            type: THREE.HalfFloatType,
+            depthBuffer: true,
+            generateMipmaps: true,
+            minFilter: THREE.LinearMipmapLinearFilter,
+        });
         this.target.texture.name = 'machi:reflection';
         this.mirror.layers.set(MACHI_REFLECT_LAYER);
     }

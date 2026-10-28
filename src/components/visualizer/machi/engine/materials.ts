@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { MachiPalette } from './palette';
+import { injectMachiSheen, MACHI_GLOSS, machiGlossFor, type MachiGloss } from './sheen';
 import { injectMachiSnow, type MachiSnowUniforms } from './snow';
 
 // src/components/visualizer/machi/engine/materials.ts
@@ -119,13 +120,17 @@ export class MachiMaterials {
             depthWrite: false,
         });
         this.glass.name = `${prefix}:glass`;
-        this.product = this.snowy(new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: this.gradient }));
+        this.snowy(this.glass, MACHI_GLOSS.glass);
+        this.product = this.snowy(new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: this.gradient }), MACHI_GLOSS.metal);
         this.product.name = `${prefix}:product`;
     }
 
-    /** 给卡通材质注入积雪（外面另建的卡通材质也可以用，比如车身）。 */
-    snowy<T extends THREE.MeshToonMaterial>(material: T): T {
-        material.onBeforeCompile = shader => injectMachiSnow(shader, this.snow);
+    /** 给卡通材质注入积雪与高光（外面另建的卡通材质也可以用，比如车身）。gloss 只是 uniform，不分着色器程序。 */
+    snowy<T extends THREE.MeshToonMaterial>(material: T, gloss: MachiGloss = MACHI_GLOSS.matte): T {
+        material.onBeforeCompile = shader => {
+            injectMachiSnow(shader, this.snow);
+            injectMachiSheen(shader, this.snow, gloss);
+        };
         material.customProgramCacheKey = () => 'machi-snow';
         return material;
     }
@@ -137,7 +142,7 @@ export class MachiMaterials {
             material = this.snowy(new THREE.MeshToonMaterial({
                 color: key === 'white' ? 0xffffff : this.blend.get(key),
                 gradientMap: this.gradient,
-            }));
+            }), machiGlossFor(key));
             material.name = `${this.prefix}:${key}`;
             this.toons.set(key, material);
         }

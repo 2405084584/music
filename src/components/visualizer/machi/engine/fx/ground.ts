@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { MachiColorBlend, MachiMaterials } from '../materials';
+import { injectMachiSheen, MACHI_GLOSS } from '../sheen';
 import { injectMachiSnow, type MachiSnowUniforms } from '../snow';
 
 // src/components/visualizer/machi/engine/fx/ground.ts
@@ -62,6 +63,35 @@ vec3 kRippleLayer(vec2 p, float scale, float t, float salt) {
     float wave = sin((dist - radius) * 48.0) * band * fade;
     return vec3(normalize(d + 1e-4) * wave, band * fade);
 }
+// 倒影取样：湿路面不是镜子。灯和字在湿路面上拉成竖着的一道道光（倒影贴图和画面同一个朝向，竖向就是 v），
+// 横向只糊一点。rough 0 是水洼（短一点、清楚一点），1 是水洼外的湿膜（长、糊）。
+vec3 kReflect(vec2 uv, float rough) {
+    float bias = mix(0.6, 1.8, rough);
+    float reach = mix(10.0, 26.0, rough) / float(textureSize(uReflection, 0).y);
+    vec3 sum = vec3(0.0);
+    float total = 0.0;
+    for (int i = -4; i <= 4; i++) {
+        float t = float(i) / 4.0;
+        float w = 1.0 - abs(t) * 0.75;
+        sum += texture2D(uReflection, uv + vec2(0.0, t * reach), bias).rgb * w;
+        total += w;
+    }
+    // 一盏灯摊成一道光以后不该暗那么多：按 0.6 倍的权重和归一，光带比平均更亮一点。
+    return sum / (total * 0.6);
+}
+// 雨点打在路面上的闪光：约 7cm 一格，格里随机一点，每隔一阵（雨点打下来）亮一下再暗下去。
+float kGlint(vec2 p, float t) {
+    vec2 q = p * 14.0;
+    vec2 cell = floor(q);
+    float h = kHash(cell + 3.7);
+    float period = 0.5 + h * 1.1;
+    float beat = t / period + h * 7.0;
+    float drop = floor(beat);
+    vec2 center = cell + 0.2 + 0.6 * vec2(kHash(cell + drop * 0.71), kHash(cell + drop * 1.37 + 9.1));
+    float d = length(q - center);
+    float aa = fwidth(d) + 1e-4;
+    return (1.0 - smoothstep(0.16 - aa, 0.16 + aa, d)) * (1.0 - fract(beat)) * step(0.45, h);
+}
 `;
 
 const OUTPUT = /* glsl */ `
@@ -71,12 +101,17 @@ const OUTPUT = /* glsl */ `
     float puddle = kPuddle(kp) * smoothstep(0.15, 0.85, uWet) * (1.0 - min(1.0, uMachiSnow * 1.5));
     vec3 ripple = kRippleLayer(kp, 2.3, uTime, 0.0) + kRippleLayer(kp, 3.9, uTime * 1.13, 19.0) * 0.7;
     vec4 rc = uReflectMatrix * vec4(vKWorld, 1.0);
-    vec2 ruv = rc.xy / rc.w + ripple.xy * mix(0.004, 0.018, puddle);
-    vec3 reflection = texture2D(uReflection, ruv).rgb;
-    // 水洼：压暗、映天空、映倒影；水洼外：湿润的一层弱反光。
-    vec3 wet = outgoingLight * mix(1.0, 0.78, uWet) + reflection * uReflectStrength * 0.16 * uWet;
-    vec3 pool = outgoingLight * 0.42 + uSky * 0.18 + reflection * uReflectStrength + ripple.z * uSky * 0.6;
-    outgoingLight = mix(wet, pool, puddle);
+    // 路面不平：一层低频的扰动让倒影的轮廓弯一弯，水洼里弯得少。
+    vec2 wobble = vec2(kNoise(kp * 2.7 + 3.1), kNoise(kp * 2.7 - 11.4)) - 0.5;
+    vec2 ruv = rc.xy / rc.w + ripple.xy * mix(0.004, 0.018, puddle) + wobble * mix(0.012, 0.005, puddle);
+    vec3 reflection = kReflect(ruv, 1.0 - puddle);
+    // 灯底下才闪：按这一点受的直射光（含高光）亮度。
+    float lit = dot(reflectedLight.directDiffuse, vec3(0.299, 0.587, 0.114));
+    float glint = kGlint(kp, uTime) * uRain * smoothstep(0.03, 0.4, lit) * (1.0 - min(1.0, uMachiSnow * 1.5));
+    // 水洼：压暗、映天空、映倒影；水洼外：一层湿膜，整片都映得出灯（拉长、糊开）。
+    vec3 wet = outgoingLight * mix(1.0, 0.62, uWet) + reflection * uReflectStrength * 0.7 * uWet;
+    vec3 pool = outgoingLight * 0.36 + uSky * 0.16 + reflection * uReflectStrength * 1.35 + ripple.z * uSky * 0.6;
+    outgoingLight = mix(wet, pool, puddle) + glint * (vec3(lit) * 3.0 + reflection);
 }
 `;
 
@@ -108,6 +143,7 @@ export class MachiGround {
         material.name = `machi:wet:${key}`;
         material.onBeforeCompile = shader => {
             injectMachiSnow(shader, this.snow);
+            injectMachiSheen(shader, this.snow, MACHI_GLOSS.ground);
             Object.assign(shader.uniforms, this.uniforms, { uPuddleBias: { value: puddleBias } });
             shader.vertexShader = shader.vertexShader
                 .replace('#include <common>', '#include <common>\nvarying vec3 vKWorld;')

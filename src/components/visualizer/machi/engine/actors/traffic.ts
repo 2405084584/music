@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { roundedBox } from '../geometry/shapes';
 import { MACHI_REFLECT_LAYER } from '../fx/reflection';
 import type { MachiColorBlend, MachiMaterials } from '../materials';
+import { MACHI_GLOSS } from '../sheen';
 import { resolveMachiCar, type MachiLane } from './schedules';
 
 // src/components/visualizer/machi/engine/actors/traffic.ts
@@ -10,6 +11,8 @@ import { resolveMachiCar, type MachiLane } from './schedules';
 // 前灯和尾灯进倒影图层，水洼里映得出来。脚下一块软阴影代替投影（阴影图不为它重画）。
 
 const WHEEL_RADIUS = 0.27;
+/** 开过的车的车身尺寸（沿车长、车宽）：场景按它定路宽和车道。 */
+export const MACHI_TRAFFIC_CAR = { length: 3.3, width: 1.46 } as const;
 /** 车身颜色：白、银、黑、藏青、红，最后一个是出租车（黄、车顶灯）。 */
 const CAR_COLORS = ['#e8eaee', '#aeb5bf', '#25292f', '#22385f', '#b8322e', '#f0c23a'];
 const TAXI_INDEX = CAR_COLORS.length - 1;
@@ -78,9 +81,9 @@ export class MachiTraffic {
             material.clippingPlanes = clipping;
             return materials.track(material);
         };
-        this.body = clip(new THREE.MeshToonMaterial({ color: CAR_COLORS[0], gradientMap: materials.gradient }));
-        const glass = clip(new THREE.MeshToonMaterial({ color: '#1a2130', gradientMap: materials.gradient }));
-        const rubber = clip(new THREE.MeshToonMaterial({ color: '#15171c', gradientMap: materials.gradient }));
+        this.body = clip(materials.snowy(new THREE.MeshToonMaterial({ color: CAR_COLORS[0], gradientMap: materials.gradient }), MACHI_GLOSS.paint));
+        const glass = clip(materials.snowy(new THREE.MeshToonMaterial({ color: '#1a2130', gradientMap: materials.gradient }), MACHI_GLOSS.glass));
+        const rubber = clip(materials.snowy(new THREE.MeshToonMaterial({ color: '#15171c', gradientMap: materials.gradient })));
         this.headlight = clip(new THREE.MeshBasicMaterial({ color: 0xffffff }));
         this.taillight = clip(new THREE.MeshBasicMaterial({ color: 0xffffff }));
         const lampMaterial = clip(new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 1.25, 0.6) }));
@@ -98,7 +101,7 @@ export class MachiTraffic {
             return mesh;
         };
         // 车身沿 +x，车头在 +x。
-        part(roundedBox(3.3, 0.56, 1.46, 0.15), this.body, 0, 0.5, 0, 'Body');
+        part(roundedBox(MACHI_TRAFFIC_CAR.length, 0.56, MACHI_TRAFFIC_CAR.width, 0.15), this.body, 0, 0.5, 0, 'Body');
         part(roundedBox(1.92, 0.5, 1.32, 0.13), glass, -0.22, 1.02, 0, 'Cabin');
         part(roundedBox(1.78, 0.08, 1.36, 0.04), this.body, -0.22, 1.3, 0, 'Roof');
         this.taxiLamp = part(roundedBox(0.36, 0.14, 0.2, 0.03), lampMaterial, -0.2, 1.41, 0, 'TaxiLamp');

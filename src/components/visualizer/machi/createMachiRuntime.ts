@@ -652,6 +652,7 @@ export class MachiRuntime {
         this.ground.uniforms.uRain.value = environment.rain > 0.02 ? Math.min(1, 0.45 + 0.5 * rain) : 0;
         this.ground.uniforms.uWet.value = environment.wetness;
         this.snow.uMachiSnow.value = environment.snowCover;
+        this.snow.uMachiWet.value = environment.wetness;
         this.snow.uMachiViewUp.value.set(0, 1, 0).transformDirection(camera.matrixWorldInverse);
         this.stage.direct({
             songTime,

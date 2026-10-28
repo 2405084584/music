@@ -14,6 +14,8 @@ export interface MachiSnowUniforms {
     uMachiViewUp: { value: THREE.Vector3 };
     uMachiRoofs: { value: THREE.Vector4[] };
     uMachiRoofY: { value: number[] };
+    /** 路面湿度 0..1（高光用，见 sheen.ts）；与积雪同一组 uniform，所有卡通材质共用。 */
+    uMachiWet: { value: number };
 }
 
 export const createMachiSnowUniforms = (): MachiSnowUniforms => ({
@@ -22,6 +24,7 @@ export const createMachiSnowUniforms = (): MachiSnowUniforms => ({
     uMachiViewUp: { value: new THREE.Vector3(0, 1, 0) },
     uMachiRoofs: { value: Array.from({ length: MACHI_SNOW_MAX_ROOFS }, () => new THREE.Vector4()) },
     uMachiRoofY: { value: Array.from({ length: MACHI_SNOW_MAX_ROOFS }, () => -100) },
+    uMachiWet: { value: 0 },
 });
 
 /** 换场景：屋顶范围（与天气布局同一份）。 */
