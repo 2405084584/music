@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeMachiTuning, resolveMachiSceneId } from '@/components/visualizer/machi/machiTuning';
-import { DEFAULT_MACHI_TUNING, DEFAULT_MACHI_VIEW, MACHI_SCENE_IDS } from '@/components/visualizer/machi/types';
+import { normalizeMachiTuning, resolveMachiQualityPreset, resolveMachiSceneId } from '@/components/visualizer/machi/machiTuning';
+import { DEFAULT_MACHI_QUALITY, DEFAULT_MACHI_TUNING, DEFAULT_MACHI_VIEW, MACHI_QUALITY_PRESET_IDS, MACHI_QUALITY_PRESETS, MACHI_SCENE_IDS } from '@/components/visualizer/machi/types';
 
 // test/unit/visualizer/machi/machiTuning.test.ts
-// 町景的设置：存下来的值认不得就回默认、数值夹进范围；“自动”场景按 seed 选，同一首歌总是同一个。
+// 町景的设置：存下来的值认不得就回默认、数值夹进范围；画质每项认不得的回默认，预设由细项推出来；
+// “自动”场景按 seed 选，同一首歌总是同一个。
 
 describe('normalizeMachiTuning', () => {
     it('fills missing fields and drops unknown values', () => {
@@ -24,6 +25,30 @@ describe('normalizeMachiTuning', () => {
         const tuning = normalizeMachiTuning({ dof: 5, dofRange: 0, tiltShift: -1, focus: 'eyes', focusOffset: -30 });
         expect(tuning).toMatchObject({ dof: 2, dofRange: 0.3, tiltShift: 0, focus: 'center', focusOffset: -10 });
         expect(normalizeMachiTuning({ dof: 0, focus: 'lyrics' })).toMatchObject({ dof: 0, focus: 'lyrics' });
+    });
+
+    it('keeps known quality values field by field and fills the rest', () => {
+        expect(normalizeMachiTuning({}).quality).toEqual(DEFAULT_MACHI_QUALITY);
+        expect(normalizeMachiTuning({ quality: null }).quality).toEqual(DEFAULT_MACHI_QUALITY);
+        expect(normalizeMachiTuning({ quality: { antialias: 'ssaa', glow: false } }).quality).toEqual({ ...DEFAULT_MACHI_QUALITY, antialias: 'ssaa', glow: false });
+        expect(normalizeMachiTuning({ quality: { renderScale: 3, antialias: 'taa', shadows: 'ultra', reflections: 1, glow: 'yes', adaptive: 0 } }).quality).toEqual(DEFAULT_MACHI_QUALITY);
+        expect(normalizeMachiTuning({ quality: { renderScale: 0.5, shadows: 'off', reflections: 'low', adaptive: false } }).quality)
+            .toEqual({ ...DEFAULT_MACHI_QUALITY, renderScale: 0.5, shadows: 'off', reflections: 'low', adaptive: false });
+    });
+});
+
+describe('resolveMachiQualityPreset', () => {
+    it('names the preset a quality matches, whatever the auto-degrade switch says', () => {
+        MACHI_QUALITY_PRESET_IDS.forEach(id => {
+            expect(resolveMachiQualityPreset({ ...MACHI_QUALITY_PRESETS[id], adaptive: true })).toBe(id);
+            expect(resolveMachiQualityPreset({ ...MACHI_QUALITY_PRESETS[id], adaptive: false })).toBe(id);
+        });
+        expect(resolveMachiQualityPreset(DEFAULT_MACHI_QUALITY)).toBe('high');
+    });
+
+    it('calls any other combination custom', () => {
+        expect(resolveMachiQualityPreset({ ...MACHI_QUALITY_PRESETS.high, antialias: 'ssaa', adaptive: true })).toBe('custom');
+        expect(resolveMachiQualityPreset({ ...MACHI_QUALITY_PRESETS.low, glow: true, adaptive: true })).toBe('custom');
     });
 });
 

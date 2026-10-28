@@ -58,6 +58,7 @@ const ATMOSPHERE_FRAGMENT = /* glsl */ `
 uniform sampler2D tDiffuse;
 uniform sampler2D tDepth;
 uniform vec2 uTexel;
+uniform float uInkScale;
 uniform float uDepthRange;
 uniform float uThreshold;
 uniform vec3 uInk;
@@ -88,15 +89,16 @@ void main() {
     float raw = texture2D(tDepth, vUv).x;
     float d = raw * uDepthRange;
     bool sky = raw > 0.9999;
-    // 墨线：平面上深度的二阶差分为零，只有轮廓和折角不为零。
-    float l = depthAt(vUv - vec2(uTexel.x, 0.0));
-    float r = depthAt(vUv + vec2(uTexel.x, 0.0));
-    float u = depthAt(vUv + vec2(0.0, uTexel.y));
-    float b = depthAt(vUv - vec2(0.0, uTexel.y));
-    float lu = depthAt(vUv + vec2(-uTexel.x, uTexel.y));
-    float rb = depthAt(vUv + vec2(uTexel.x, -uTexel.y));
-    float ru = depthAt(vUv + uTexel);
-    float lb = depthAt(vUv - uTexel);
+    // 墨线：平面上深度的二阶差分为零，只有轮廓和折角不为零。取样步长按屏幕像素（超采样时 uInkScale > 1），线宽不随超采样变。
+    vec2 inkStep = uTexel * uInkScale;
+    float l = depthAt(vUv - vec2(inkStep.x, 0.0));
+    float r = depthAt(vUv + vec2(inkStep.x, 0.0));
+    float u = depthAt(vUv + vec2(0.0, inkStep.y));
+    float b = depthAt(vUv - vec2(0.0, inkStep.y));
+    float lu = depthAt(vUv + vec2(-inkStep.x, inkStep.y));
+    float rb = depthAt(vUv + vec2(inkStep.x, -inkStep.y));
+    float ru = depthAt(vUv + inkStep);
+    float lb = depthAt(vUv - inkStep);
     float laplace = abs(l + r - 2.0 * d) + abs(u + b - 2.0 * d) + 0.5 * (abs(lu + rb - 2.0 * d) + abs(ru + lb - 2.0 * d));
     float line = smoothstep(uThreshold, uThreshold * 2.6, laplace) * (sky ? 0.0 : 1.0);
     vec3 rgb = mix(color.rgb, uInk, line * uInkStrength);
@@ -144,6 +146,7 @@ export class MachiAtmospherePass extends Pass {
                 tDiffuse: { value: null },
                 tDepth: { value: null },
                 uTexel: { value: new THREE.Vector2() },
+                uInkScale: { value: 1 },
                 uDepthRange: { value: 100 },
                 uThreshold: { value: 0.05 },
                 uInk: { value: new THREE.Color(0x0b0f1a) },

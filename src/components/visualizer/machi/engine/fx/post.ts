@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { FXAAPass } from 'three/examples/jsm/postprocessing/FXAAPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import type { MachiRenderQuality } from '../quality';
 import {
     MachiAtmospherePass,
     MachiLensPass,
@@ -12,15 +15,21 @@ import {
 
 // src/components/visualizer/machi/engine/fx/post.ts
 // 町景的后处理链：场景画进单独一张带深度贴图的 HDR 目标（MSAA，不参与合成器的来回交换）→ 氛围（墨线、贴地薄雾与灯的散射、云和闪电）
-// → bloom（柔和、宽，让招牌和灯在雨夜里晕开）→ 横向镜头光条 → 镜头（微缩景深、色差、暗角、颗粒）→ 色调映射输出。
-// 画质降级时依次关掉景深、光条、bloom；预览里只留氛围和镜头的暗角颗粒。
+// → bloom（柔和、宽，让招牌和灯在雨夜里晕开）→ 横向镜头光条 → 镜头（微缩景深、色差、暗角、颗粒）→ 色调映射输出
+// → 抗锯齿（FXAA 或 SMAA，在输出之后的 sRGB 上做，边缘检测才准；墨线是氛围 pass 描的，场景目标的 MSAA 管不到它）。
+// 画质（engine/quality.ts）决定场景目标的 MSAA、墨线的取样步长、开不开 bloom / 光条 / 景深离焦层、最后用哪种抗锯齿。
 
-export interface MachiPostOptions {
-    samples: number;
-    bloom: boolean;
-    streaks: boolean;
-    dof: boolean;
-}
+/** 后处理要的那几项画质。 */
+export type MachiPostQuality = Pick<MachiRenderQuality, 'samples' | 'bloom' | 'streaks' | 'dof' | 'postAA' | 'inkScale'>;
+
+/** 场景画进的 HDR 目标（带深度贴图，MSAA 采样数按画质）。 */
+const createSceneTarget = (width: number, height: number, samples: number) => {
+    const depthTexture = new THREE.DepthTexture(width, height);
+    depthTexture.type = THREE.UnsignedIntType;
+    const target = new THREE.WebGLRenderTarget(width, height, { type: THREE.HalfFloatType, samples, depthTexture });
+    target.texture.name = 'machi:scene';
+    return target;
+};
 
 export interface MachiAtmosphereFrame {
     time: number;
@@ -47,8 +56,10 @@ export class MachiPost {
     private readonly bloom: UnrealBloomPass;
     private readonly streaks: MachiStreakPass;
     private readonly lens: MachiLensPass;
-    private bloomAllowed: boolean;
-    private streaksAllowed: boolean;
+    private readonly fxaa: FXAAPass;
+    private readonly smaa: SMAAPass;
+    private bloomAllowed = true;
+    private streaksAllowed = true;
     private bloomStrength = 0.5;
     private streakStrength = 0.55;
 
@@ -56,33 +67,26 @@ export class MachiPost {
         private readonly renderer: THREE.WebGLRenderer,
         private readonly sceneGraph: THREE.Scene,
         private readonly camera: THREE.OrthographicCamera,
-        options: MachiPostOptions,
+        quality: MachiPostQuality,
     ) {
         const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-        const depthTexture = new THREE.DepthTexture(size.x, size.y);
-        depthTexture.type = THREE.UnsignedIntType;
-        const target = new THREE.WebGLRenderTarget(size.x, size.y, {
-            type: THREE.HalfFloatType,
-            samples: options.samples,
-            depthTexture,
-        });
-        target.texture.name = 'machi:scene';
-        this.scene = { target };
+        this.scene = { target: createSceneTarget(size.x, size.y, quality.samples) };
         this.composer = new EffectComposer(renderer);
         this.atmosphere = new MachiAtmospherePass(this.scene);
         this.composer.addPass(this.atmosphere);
         this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.5, 0.62, 0.86);
-        this.bloomAllowed = options.bloom;
-        this.bloom.enabled = options.bloom;
         this.composer.addPass(this.bloom);
         this.streaks = new MachiStreakPass();
-        this.streaksAllowed = options.streaks;
-        this.streaks.enabled = options.streaks;
         this.composer.addPass(this.streaks);
         this.lens = new MachiLensPass(this.scene);
-        this.lens.dofEnabled = options.dof;
         this.composer.addPass(this.lens);
         this.composer.addPass(new OutputPass());
+        // 合成器把最后一道开着的 pass 画到屏幕上：两种抗锯齿都关着时，输出那道直接上屏。
+        this.fxaa = new FXAAPass();
+        this.composer.addPass(this.fxaa);
+        this.smaa = new SMAAPass();
+        this.composer.addPass(this.smaa);
+        this.setQuality(quality);
     }
 
     setSize(width: number, height: number, pixelRatio: number) {
@@ -91,10 +95,20 @@ export class MachiPost {
         this.scene.target.setSize(Math.max(1, Math.round(width * pixelRatio)), Math.max(1, Math.round(height * pixelRatio)));
     }
 
-    setQuality(options: Pick<MachiPostOptions, 'bloom' | 'streaks' | 'dof'>) {
-        this.bloomAllowed = options.bloom;
-        this.streaksAllowed = options.streaks;
-        this.lens.dofEnabled = options.dof;
+    /** 换画质：MSAA 采样数变了就换一张场景目标（氛围、镜头 pass 读的是同一个 MachiSceneTarget，自动跟上）。 */
+    setQuality(quality: MachiPostQuality) {
+        const current = this.scene.target;
+        if (current.samples !== quality.samples) {
+            this.scene.target = createSceneTarget(current.width, current.height, quality.samples);
+            current.depthTexture?.dispose();
+            current.dispose();
+        }
+        this.atmosphere.material.uniforms.uInkScale!.value = quality.inkScale;
+        this.bloomAllowed = quality.bloom;
+        this.streaksAllowed = quality.streaks;
+        this.lens.dofEnabled = quality.dof;
+        this.fxaa.enabled = quality.postAA === 'fxaa';
+        this.smaa.enabled = quality.postAA === 'smaa';
         this.applyGlow();
     }
 
@@ -122,7 +136,8 @@ export class MachiPost {
         const range = camera.far - camera.near;
         const uniforms = this.atmosphere.material.uniforms;
         uniforms.uDepthRange!.value = range;
-        uniforms.uThreshold!.value = Math.max(0.004, pixelWorldSize * 0.7);
+        // 墨线按屏幕像素取样（超采样时步长大于一个内部像素），门槛跟着取样步长代表的世界尺寸走。
+        uniforms.uThreshold!.value = Math.max(0.004, pixelWorldSize * (uniforms.uInkScale!.value as number) * 0.7);
         (uniforms.uProjInv!.value as THREE.Matrix4).copy(camera.projectionMatrixInverse);
         (uniforms.uCamWorld!.value as THREE.Matrix4).copy(camera.matrixWorld);
         uniforms.uTime!.value = atmosphere.time;
@@ -150,6 +165,8 @@ export class MachiPost {
         this.bloom.dispose();
         this.streaks.dispose();
         this.lens.dispose();
+        this.fxaa.dispose();
+        this.smaa.dispose();
         this.composer.dispose();
         this.scene.target.depthTexture?.dispose();
         this.scene.target.dispose();

@@ -1,20 +1,30 @@
 import React from 'react';
 import { Button, Group, PictureGrid, Row, Segmented, type SettingsGroupDef } from '../../modal/settings/kit';
 import type { VisualizerSettingsPanelProps } from '../definition';
-import { percent, SliderRow, times } from '../panelRows';
+import { percent, SliderRow, times, ToggleRow } from '../panelRows';
+import { resolveMachiQualityPreset } from './machiTuning';
 import {
     DEFAULT_MACHI_TUNING,
     DEFAULT_MACHI_VIEW,
+    MACHI_ANTIALIAS_MODES,
     MACHI_CAMERA_MODES,
+    MACHI_DETAIL_LEVELS,
     MACHI_DOF_LIMITS,
     MACHI_FOCUS_MODES,
+    MACHI_QUALITY_PRESET_IDS,
+    MACHI_QUALITY_PRESETS,
+    MACHI_RENDER_SCALES,
     MACHI_SCENE_IDS,
     MACHI_TIMES_OF_DAY,
     MACHI_VIEW_LIMITS,
     MACHI_WEATHERS,
+    type MachiAntialias,
     type MachiCameraMode,
     type MachiCameraView,
+    type MachiDetailLevel,
     type MachiFocusMode,
+    type MachiQuality,
+    type MachiQualityPresetId,
     type MachiTimeOfDay,
     type MachiTuning,
     type MachiWeather,
@@ -22,12 +32,33 @@ import {
 
 // src/components/visualizer/machi/MachiSettingsPanel.tsx
 // 町景的设置面板：场景（线稿小图，不放实时预览）、时间、天气三项，每项都有“自动”；镜头（默认视角，或自定义视角
-// 与它的五个滑块）；景深（强度、清晰范围、移轴、对焦在哪）。快捷控件里的胶囊用同一套文案。
+// 与它的五个滑块）；景深（强度、清晰范围、移轴、对焦在哪）；画质（高 / 平衡 / 低三套预设和各个细项，细项和哪套都对不上
+// 就多出一个选中的“自定义”，预设不单独存）。快捷控件里的胶囊用同一套文案。
 
 const SCENE_GROUP: SettingsGroupDef = { id: 'vis-machi-scene', titleKey: 'options.machiSceneSection' };
 const SKY_GROUP: SettingsGroupDef = { id: 'vis-machi-sky', titleKey: 'options.machiSkySection' };
 const CAMERA_GROUP: SettingsGroupDef = { id: 'vis-machi-camera', titleKey: 'options.machiCameraSection' };
 const DOF_GROUP: SettingsGroupDef = { id: 'vis-machi-dof', titleKey: 'options.machiDofSection' };
+const QUALITY_GROUP: SettingsGroupDef = { id: 'vis-machi-quality', titleKey: 'options.machiQualitySection' };
+
+const QUALITY_PRESET_LABEL_KEYS: Record<MachiQualityPresetId, string> = {
+    high: 'options.machiQualityHigh',
+    balanced: 'options.machiQualityBalanced',
+    low: 'options.machiQualityLow',
+};
+
+const ANTIALIAS_LABEL_KEYS: Record<MachiAntialias, string> = {
+    off: 'options.machiAntialiasOff',
+    fxaa: 'options.machiAntialiasFxaa',
+    smaa: 'options.machiAntialiasSmaa',
+    ssaa: 'options.machiAntialiasSsaa',
+};
+
+const LEVEL_LABEL_KEYS: Record<MachiDetailLevel, string> = {
+    off: 'options.machiLevelOff',
+    low: 'options.machiLevelLow',
+    high: 'options.machiLevelHigh',
+};
 
 export const MACHI_SCENE_CHOICES: MachiTuning['scene'][] = ['auto', ...MACHI_SCENE_IDS];
 
@@ -138,6 +169,10 @@ const MachiSettingsPanel: React.FC<VisualizerSettingsPanelProps<MachiTuning>> = 
     onSliderCommit,
 }) => {
     const custom = tuning.camera === 'custom';
+    const quality = tuning.quality;
+    const preset = resolveMachiQualityPreset(quality);
+    const setQuality = (patch: Partial<MachiQuality>) => onTuningChange?.({ quality: { ...quality, ...patch } });
+    const levels = MACHI_DETAIL_LEVELS.map(level => ({ value: level, label: t(LEVEL_LABEL_KEYS[level]) }));
     return (
         <>
             <Group def={SCENE_GROUP}>
@@ -262,6 +297,52 @@ const MachiSettingsPanel: React.FC<VisualizerSettingsPanelProps<MachiTuning>> = 
                         onDragEnd={onSliderCommit}
                     />
                 )}
+            </Group>
+
+            <Group def={QUALITY_GROUP}>
+                <Row label={t('options.machiQuality')} note={t('options.machiQualityHint')}>
+                    {/* “自定义”只在细项和哪档都对不上时出现（选中的那一项，点它没有动作）。 */}
+                    <Segmented<MachiQualityPresetId | 'custom'>
+                        value={preset}
+                        options={[
+                            ...MACHI_QUALITY_PRESET_IDS.map(id => ({ value: id, label: t(QUALITY_PRESET_LABEL_KEYS[id]) })),
+                            ...(preset === 'custom' ? [{ value: 'custom' as const, label: t('options.machiQualityCustom') }] : []),
+                        ]}
+                        onChange={id => { if (id !== 'custom') setQuality(MACHI_QUALITY_PRESETS[id]); }}
+                    />
+                </Row>
+                <Row label={t('options.machiRenderScale')} note={t('options.machiRenderScaleHint')}>
+                    <Segmented<string>
+                        value={String(quality.renderScale)}
+                        options={MACHI_RENDER_SCALES.map(scale => ({ value: String(scale), label: `${Math.round(scale * 100)}%` }))}
+                        onChange={value => setQuality({ renderScale: MACHI_RENDER_SCALES.find(scale => String(scale) === value) ?? quality.renderScale })}
+                    />
+                </Row>
+                <Row label={t('options.machiAntialias')} note={t('options.machiAntialiasHint')}>
+                    <Segmented<MachiAntialias>
+                        value={quality.antialias}
+                        options={MACHI_ANTIALIAS_MODES.map(mode => ({ value: mode, label: t(ANTIALIAS_LABEL_KEYS[mode]) }))}
+                        onChange={antialias => setQuality({ antialias })}
+                    />
+                </Row>
+                <Row label={t('options.machiShadows')} note={t('options.machiShadowsHint')}>
+                    <Segmented<MachiDetailLevel> value={quality.shadows} options={levels} onChange={shadows => setQuality({ shadows })} />
+                </Row>
+                <Row label={t('options.machiReflections')} note={t('options.machiReflectionsHint')}>
+                    <Segmented<MachiDetailLevel> value={quality.reflections} options={levels} onChange={reflections => setQuality({ reflections })} />
+                </Row>
+                <ToggleRow
+                    label={t('options.machiGlow')}
+                    note={t('options.machiGlowHint')}
+                    checked={quality.glow}
+                    onChange={glow => setQuality({ glow })}
+                />
+                <ToggleRow
+                    label={t('options.machiAdaptive')}
+                    note={t('options.machiAdaptiveHint')}
+                    checked={quality.adaptive}
+                    onChange={adaptive => setQuality({ adaptive })}
+                />
             </Group>
         </>
     );

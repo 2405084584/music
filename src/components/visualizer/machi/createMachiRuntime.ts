@@ -30,6 +30,7 @@ import {
 } from './engine/environment';
 import { MachiGround } from './engine/fx/ground';
 import { MachiPost, type MachiAtmosphereFrame } from './engine/fx/post';
+import { resolveMachiRenderQuality, type MachiRenderQuality } from './engine/quality';
 import { MachiReflection } from './engine/fx/reflection';
 import { MachiWeather } from './engine/fx/weather';
 import { MachiColorBlend, MachiMaterials } from './engine/materials';
@@ -40,7 +41,7 @@ import { createMachiSnowUniforms, setMachiSnowRoofs } from './engine/snow';
 import { resolveMachiSceneId } from './machiTuning';
 import { MACHI_SCENES } from './scenes';
 import type { MachiScene, MachiSceneContent, MachiSceneContext } from './scenes/types';
-import type { MachiCameraView, MachiSceneId, MachiTuning } from './types';
+import type { MachiCameraView, MachiQuality, MachiSceneId, MachiTuning } from './types';
 
 // src/components/visualizer/machi/createMachiRuntime.ts
 // 町景的运行时：一个 WebGL 上下文，建一次；换歌、换主题、换设置、暂停都就地推给它（外壳用 useVisualizerPixiHost 托管）。
@@ -81,10 +82,6 @@ export interface MachiRuntimeOptions {
     signal: AbortSignal;
 }
 
-/** 画质上限：DPR 封顶，自动降级只降不升。 */
-const MAX_PIXEL_RATIO = 1.5;
-const PREVIEW_PIXEL_RATIO = 1;
-
 const throwIfAborted = (signal: AbortSignal) => {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
 };
@@ -103,21 +100,6 @@ const INTENSITY_SCALE: Record<Theme['animationIntensity'], number> = { calm: 0.7
 /** 每个窗口有车开过的概率，按主题的动效强度。 */
 const TRAFFIC_CHANCE: Record<Theme['animationIntensity'], number> = { calm: 0.4, normal: 0.6, chaotic: 0.78 };
 
-/** 画质档：自动降级只往后走。 */
-interface MachiQualityStep {
-    pixelRatio: number;
-    reflectionScale: number;
-    shadowMapSize: number;
-    bloom: boolean;
-    streaks: boolean;
-    dof: boolean;
-}
-const QUALITY_STEPS: MachiQualityStep[] = [
-    { pixelRatio: 1.5, reflectionScale: 0.5, shadowMapSize: 2048, bloom: true, streaks: true, dof: true },
-    { pixelRatio: 1.25, reflectionScale: 0.5, shadowMapSize: 2048, bloom: true, streaks: true, dof: true },
-    { pixelRatio: 1, reflectionScale: 0.4, shadowMapSize: 1536, bloom: true, streaks: true, dof: false },
-    { pixelRatio: 1, reflectionScale: 0.3, shadowMapSize: 1024, bloom: false, streaks: false, dof: false },
-];
 /** 平均帧时超过它（约 48fps 以下）就降一档；至少隔这么久才看一次。 */
 const DEGRADE_FRAME_MS = 21;
 const DEGRADE_WINDOW_MS = 2500;
@@ -134,6 +116,8 @@ const SCENE_FADE_OUT = 0.18;
 const SCENE_FADE_IN = 0.32;
 
 const lerpColor = (out: THREE.Color, a: THREE.Color, b: THREE.Color, t: number) => out.copy(a).lerp(b, t);
+/** 画质设置的指纹：设置面板每次给的是新对象，按内容比。 */
+const qualityKey = (quality: MachiQuality) => [quality.renderScale, quality.antialias, quality.shadows, quality.reflections, quality.glow, quality.adaptive].join('|');
 
 interface MachiDebugHook {
     setView: (azimuthDeg: number, elevationDeg: number, zoom?: number) => void;
@@ -186,7 +170,9 @@ export class MachiRuntime {
     private readonly scratchColor = new THREE.Color();
     private readonly scratchColorB = new THREE.Color();
     private lightningTimes: number[] = [];
-    private quality = 0;
+    /** 自动降级压下去了几格（改了画质设置就归零）。 */
+    private degrade = 0;
+    private renderQuality: MachiRenderQuality;
     private qualityCheckedAt = 0;
     private size = { width: 1, height: 1 };
     private readonly audio = new MachiAudioFollower();
@@ -239,9 +225,10 @@ export class MachiRuntime {
         this.theme = options.theme;
         this.tuning = options.tuning;
         this.themeSignature = themeKey(options.theme);
-        this.pixelRatio = Math.min(window.devicePixelRatio || 1, options.previewMode ? PREVIEW_PIXEL_RATIO : MAX_PIXEL_RATIO);
+        this.renderQuality = this.resolveQuality();
+        this.pixelRatio = this.renderQuality.pixelRatio;
 
-        // 抗锯齿交给后处理目标的 MSAA，画布本身不开。
+        // 抗锯齿交给后处理（场景目标的 MSAA、最后的 FXAA / SMAA、超采样），画布本身不开。
         this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'high-performance', stencil: false });
         this.renderer.setPixelRatio(this.pixelRatio);
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -270,16 +257,13 @@ export class MachiRuntime {
         this.environment = createMachiEnvironmentState(this.environmentTarget);
         this.look = resolveMachiEnvironmentLook(this.environment);
         this.ground = new MachiGround(this.materials, this.blend, this.snow);
-        this.skyLights = new MachiSkyLights(this.blend, options.previewMode ? 1024 : 2048);
+        const quality = this.renderQuality;
+        this.skyLights = new MachiSkyLights(this.blend, quality.shadowMapSize);
         this.scene.add(this.skyLights.group);
-        this.reflection = new MachiReflection(0.06, QUALITY_STEPS[0]!.reflectionScale);
+        this.reflection = new MachiReflection(0.06, quality.reflectionScale || 0.3);
         this.ground.uniforms.uReflection.value = this.reflection.target.texture;
-        this.post = new MachiPost(this.renderer, this.scene, this.camera.camera, {
-            samples: options.previewMode ? 0 : 4,
-            bloom: !options.previewMode,
-            streaks: !options.previewMode,
-            dof: true,
-        });
+        this.ground.setReflections(quality.reflectionScale > 0);
+        this.post = new MachiPost(this.renderer, this.scene, this.camera.camera, quality);
         this.scene.background = this.sky.texture;
         this.camera.onCommit = view => this.options.onViewChange?.(view);
         this.camera.onWake = () => this.wake();
@@ -423,23 +407,42 @@ export class MachiRuntime {
         this.wantsFrame = true;
     }
 
-    /** 帧时一直偏高就降一档画质（DPR、倒影分辨率、阴影图、bloom），只降不升。 */
+    /** 画质设置 + 自动降级的格数 → 实际用的渲染参数。 */
+    private resolveQuality(degrade = this.degrade): MachiRenderQuality {
+        return resolveMachiRenderQuality(this.tuning.quality, {
+            degrade,
+            devicePixelRatio: window.devicePixelRatio || 1,
+            previewMode: this.options.previewMode,
+        });
+    }
+
+    /** 把画质用上：DPR、倒影、阴影、后处理（MSAA、抗锯齿、bloom / 光条、景深离焦层）。改设置与自动降级都走这里。 */
+    private applyQuality() {
+        const quality = this.resolveQuality();
+        this.renderQuality = quality;
+        this.pixelRatio = quality.pixelRatio;
+        this.renderer.setPixelRatio(quality.pixelRatio);
+        if (quality.reflectionScale > 0) this.reflection.setScale(quality.reflectionScale, this.size.width * quality.pixelRatio, this.size.height * quality.pixelRatio);
+        this.ground.setReflections(quality.reflectionScale > 0);
+        this.skyLights.setShadowMapSize(quality.shadowMapSize);
+        this.post.setQuality(quality);
+        this.resize(this.size.width, this.size.height);
+        this.frameTimes.length = 0;
+        this.wake();
+    }
+
+    /** 帧时一直偏高就在用户那套画质之下再压一格（engine/quality.ts 的顺序），只降不升；自动降级关着时不管。 */
     private adaptQuality(now: number) {
-        if (this.options.previewMode || this.clock.paused || document.visibilityState !== 'visible') return;
+        if (this.options.previewMode || !this.tuning.quality.adaptive || this.clock.paused || document.visibilityState !== 'visible') return;
         if (now - this.qualityCheckedAt < DEGRADE_WINDOW_MS || this.frameTimes.length < 60) return;
         this.qualityCheckedAt = now;
         const average = this.frameTimes.reduce((sum, value) => sum + value, 0) / this.frameTimes.length;
-        if (average <= DEGRADE_FRAME_MS || this.quality >= QUALITY_STEPS.length - 1) return;
-        this.quality += 1;
-        const step = QUALITY_STEPS[this.quality]!;
-        this.pixelRatio = Math.min(window.devicePixelRatio || 1, step.pixelRatio);
-        this.renderer.setPixelRatio(this.pixelRatio);
-        this.reflection.setScale(step.reflectionScale, this.size.width * this.pixelRatio, this.size.height * this.pixelRatio);
-        this.skyLights.setShadowMapSize(step.shadowMapSize);
-        this.post.setQuality(step);
-        this.resize(this.size.width, this.size.height);
-        this.frameTimes.length = 0;
-        console.info(`[Machi] frame time ${average.toFixed(1)} ms, quality step ${this.quality}`);
+        if (average <= DEGRADE_FRAME_MS) return;
+        // 已经压到底：再要一格也压不下去了。
+        if (this.resolveQuality(this.degrade + 1).degrade <= this.renderQuality.degrade) return;
+        this.degrade += 1;
+        this.applyQuality();
+        console.info(`[Machi] frame time ${average.toFixed(1)} ms, degraded ${this.degrade} step(s)`);
     }
 
     /**
@@ -525,8 +528,8 @@ export class MachiRuntime {
         this.renderer.info.reset();
         if (this.skyLights.moon.shadow.needsUpdate) this.renderer.shadowMap.needsUpdate = true;
         const camera = this.camera.camera;
-        // 干的路面不映倒影：省掉倒影那一遍。
-        if (this.environment.wetness > 0.02) {
+        // 干的路面不映倒影、画质里关了倒影：都省掉倒影那一遍。
+        if (this.environment.wetness > 0.02 && this.renderQuality.reflectionScale > 0) {
             this.reflection.render(this.renderer, this.scene, camera);
             this.ground.uniforms.uReflectMatrix.value.copy(this.reflection.textureMatrix);
         }
@@ -741,6 +744,11 @@ export class MachiRuntime {
         }
         if (previous.timeOfDay !== tuning.timeOfDay || previous.weather !== tuning.weather) this.refreshEnvironmentTarget();
         this.camera.setCustom(tuning.camera === 'custom' ? tuning.view : null);
+        if (qualityKey(previous.quality) !== qualityKey(tuning.quality)) {
+            // 换了画质设置：自动降级从这套设置重新开始。
+            this.degrade = 0;
+            this.applyQuality();
+        }
         this.wantsFrame = true;
         this.wake();
     }
@@ -811,6 +819,9 @@ export class MachiRuntime {
                     programs: this.renderer.info.programs?.length ?? 0,
                     frameMs: Math.round(average * 100) / 100,
                     pixelRatio: this.pixelRatio,
+                    antialias: this.renderQuality.antialias,
+                    samples: this.renderQuality.samples,
+                    degrade: this.renderQuality.degrade,
                     showText: this.showText ? 1 : 0,
                 };
             },

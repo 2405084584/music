@@ -115,6 +115,9 @@ const OUTPUT = /* glsl */ `
 }
 `;
 
+/** 倒影的强度（画质里关了倒影时是 0）。 */
+const REFLECT_STRENGTH = 0.75;
+
 export class MachiGround {
     readonly uniforms: MachiGroundUniforms = {
         uTime: { value: 0 },
@@ -125,7 +128,7 @@ export class MachiGround {
         uRain: { value: 0.75 },
         uWet: { value: 1 },
         uSky: { value: new THREE.Color() },
-        uReflectStrength: { value: 0.75 },
+        uReflectStrength: { value: REFLECT_STRENGTH },
     };
     readonly asphalt: THREE.MeshToonMaterial;
     readonly concrete: THREE.MeshToonMaterial;
@@ -154,6 +157,11 @@ export class MachiGround {
         };
         material.customProgramCacheKey = () => `machi-wet-${puddleBias}`;
         return material;
+    }
+
+    /** 画质里关了倒影：倒影贴图不再更新，路面也不取它（只留湿润的暗色和天空色）。 */
+    setReflections(enabled: boolean) {
+        this.uniforms.uReflectStrength.value = enabled ? REFLECT_STRENGTH : 0;
     }
 
     syncColors() {

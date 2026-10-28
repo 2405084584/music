@@ -1,6 +1,7 @@
 // src/components/visualizer/machi/types.ts
 // 町景的 tuning：哪个场景、什么时间、什么天气（三项都可以是“自动”：场景和天气按歌的 seed 选，时间跟本地时钟走），
-// 镜头（默认构图，或固定在自己调的视角上）与景深（强弱、清晰范围、移轴、对焦在哪）。
+// 镜头（默认构图，或固定在自己调的视角上）与景深（强弱、清晰范围、移轴、对焦在哪），以及画质（分辨率、抗锯齿、阴影、
+// 倒影、辉光、自动降级；面板上的高 / 平衡 / 低只是几套细项，不单独存）。
 
 /** 场景：便利店街角、加油站停车场、城寨酒吧。 */
 export const MACHI_SCENE_IDS = ['konbini', 'station', 'kowloon'] as const;
@@ -49,6 +50,43 @@ export const MACHI_DOF_LIMITS = {
     focusOffset: { min: -10, max: 10 },
 } as const;
 
+/** 渲染分辨率：屏幕像素的几成（高 DPI 屏上最多按 2 倍 CSS 像素算）。 */
+export const MACHI_RENDER_SCALES = [1, 0.75, 0.5] as const;
+export type MachiRenderScale = typeof MACHI_RENDER_SCALES[number];
+
+/** 抗锯齿：关、FXAA（最省）、SMAA（几何边缘 MSAA，墨线与雨丝后期 SMAA）、超采样（按 2 倍分辨率画再缩回来）。 */
+export const MACHI_ANTIALIAS_MODES = ['off', 'fxaa', 'smaa', 'ssaa'] as const;
+export type MachiAntialias = typeof MACHI_ANTIALIAS_MODES[number];
+
+/** 阴影、倒影的档：关、低、高。 */
+export const MACHI_DETAIL_LEVELS = ['off', 'low', 'high'] as const;
+export type MachiDetailLevel = typeof MACHI_DETAIL_LEVELS[number];
+
+export interface MachiQuality {
+    renderScale: MachiRenderScale;
+    antialias: MachiAntialias;
+    /** 月光 / 太阳的阴影图：关、1024、2048。 */
+    shadows: MachiDetailLevel;
+    /** 湿路面的倒影贴图：关、0.3、0.5 倍分辨率。 */
+    reflections: MachiDetailLevel;
+    /** bloom 与横向镜头光条。 */
+    glow: boolean;
+    /** 帧时长期偏高时在这套设置之下逐步降低（不会高过这套设置）。 */
+    adaptive: boolean;
+}
+
+export const MACHI_QUALITY_PRESET_IDS = ['high', 'balanced', 'low'] as const;
+export type MachiQualityPresetId = typeof MACHI_QUALITY_PRESET_IDS[number];
+
+/** 面板上的三档：每档是一套细项（自动降级不归预设管）。 */
+export const MACHI_QUALITY_PRESETS: Record<MachiQualityPresetId, Omit<MachiQuality, 'adaptive'>> = {
+    high: { renderScale: 1, antialias: 'smaa', shadows: 'high', reflections: 'high', glow: true },
+    balanced: { renderScale: 1, antialias: 'fxaa', shadows: 'low', reflections: 'low', glow: true },
+    low: { renderScale: 0.75, antialias: 'off', shadows: 'off', reflections: 'off', glow: false },
+};
+
+export const DEFAULT_MACHI_QUALITY: MachiQuality = { ...MACHI_QUALITY_PRESETS.high, adaptive: true };
+
 export interface MachiTuning {
     scene: 'auto' | MachiSceneId;
     timeOfDay: MachiTimeOfDay;
@@ -60,6 +98,7 @@ export interface MachiTuning {
     tiltShift: number;
     focus: MachiFocusMode;
     focusOffset: number;
+    quality: MachiQuality;
 }
 
 export const DEFAULT_MACHI_VIEW: MachiCameraView = { azimuth: 0, elevation: 0, zoom: 1, panX: 0, panZ: 0 };
@@ -75,4 +114,5 @@ export const DEFAULT_MACHI_TUNING: MachiTuning = {
     tiltShift: 0.3,
     focus: 'center',
     focusOffset: 0,
+    quality: DEFAULT_MACHI_QUALITY,
 };

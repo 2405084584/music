@@ -1,16 +1,24 @@
 import { numberWithin } from '../tuningDefinition';
 import { hashVisualizerSeed } from '../visualizerSeedHash';
 import {
+    DEFAULT_MACHI_QUALITY,
     DEFAULT_MACHI_TUNING,
     DEFAULT_MACHI_VIEW,
+    MACHI_ANTIALIAS_MODES,
     MACHI_CAMERA_MODES,
+    MACHI_DETAIL_LEVELS,
     MACHI_DOF_LIMITS,
     MACHI_FOCUS_MODES,
+    MACHI_QUALITY_PRESET_IDS,
+    MACHI_QUALITY_PRESETS,
+    MACHI_RENDER_SCALES,
     MACHI_SCENE_IDS,
     MACHI_TIMES_OF_DAY,
     MACHI_VIEW_LIMITS,
     MACHI_WEATHERS,
     type MachiCameraView,
+    type MachiQuality,
+    type MachiQualityPresetId,
     type MachiSceneId,
     type MachiTuning,
 } from './types';
@@ -28,6 +36,29 @@ export const normalizeMachiView = (raw: unknown): MachiCameraView => {
     return { azimuth: field('azimuth'), elevation: field('elevation'), zoom: field('zoom'), panX: field('panX'), panZ: field('panZ') };
 };
 
+/** 画质：每项认得的值留下，缺的、坏的回默认。 */
+export const normalizeMachiQuality = (raw: unknown): MachiQuality => {
+    const input = raw && typeof raw === 'object' ? raw as Partial<Record<keyof MachiQuality, unknown>> : {};
+    const d = DEFAULT_MACHI_QUALITY;
+    const pick = <T>(choices: readonly T[], value: unknown, fallback: T): T => (choices.includes(value as T) ? value as T : fallback);
+    return {
+        renderScale: pick(MACHI_RENDER_SCALES, input.renderScale, d.renderScale),
+        antialias: pick(MACHI_ANTIALIAS_MODES, input.antialias, d.antialias),
+        shadows: pick(MACHI_DETAIL_LEVELS, input.shadows, d.shadows),
+        reflections: pick(MACHI_DETAIL_LEVELS, input.reflections, d.reflections),
+        glow: typeof input.glow === 'boolean' ? input.glow : d.glow,
+        adaptive: typeof input.adaptive === 'boolean' ? input.adaptive : d.adaptive,
+    };
+};
+
+/** 这套画质是哪一档预设（细项和某一档完全一样才算），不是就是自定义。 */
+export const resolveMachiQualityPreset = (quality: MachiQuality): MachiQualityPresetId | 'custom' => (
+    MACHI_QUALITY_PRESET_IDS.find(id => {
+        const preset = MACHI_QUALITY_PRESETS[id];
+        return (Object.keys(preset) as (keyof typeof preset)[]).every(key => preset[key] === quality[key]);
+    }) ?? 'custom'
+);
+
 /** 任何存下来的值 → 完整、合法的 tuning。 */
 export const normalizeMachiTuning = (raw: unknown): MachiTuning => {
     const input = { ...DEFAULT_MACHI_TUNING, ...(raw && typeof raw === 'object' ? raw as Partial<MachiTuning> : {}) };
@@ -44,6 +75,7 @@ export const normalizeMachiTuning = (raw: unknown): MachiTuning => {
         tiltShift: within('tiltShift'),
         focus: MACHI_FOCUS_MODES.includes(input.focus) ? input.focus : d.focus,
         focusOffset: within('focusOffset'),
+        quality: normalizeMachiQuality(input.quality),
     };
 };
 

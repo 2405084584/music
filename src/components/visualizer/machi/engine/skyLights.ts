@@ -41,8 +41,9 @@ export class MachiSkyLights {
         this.moon.name = 'Lights/moon';
         this.moon.position.copy(this.direction).multiplyScalar(LIGHT_DISTANCE);
         this.moon.target.position.set(0, 0, 0);
-        this.moon.castShadow = true;
-        this.moon.shadow.mapSize.set(shadowMapSize, shadowMapSize);
+        // shadowMapSize 为 0 是不投阴影（画质）。
+        this.moon.castShadow = shadowMapSize > 0;
+        this.moon.shadow.mapSize.setScalar(shadowMapSize > 0 ? shadowMapSize : 1024);
         const shadowCamera = this.moon.shadow.camera;
         shadowCamera.left = -9.5;
         shadowCamera.right = 9.5;
@@ -92,8 +93,14 @@ export class MachiSkyLights {
         this.invalidateShadows();
     }
 
+    /** 0 是不投阴影（画质里关了阴影；会重编一次着色器，只在改设置时发生）。 */
     setShadowMapSize(size: number) {
-        if (this.moon.shadow.mapSize.x === size) return;
+        const cast = size > 0;
+        if (this.moon.castShadow !== cast) {
+            this.moon.castShadow = cast;
+            this.invalidateShadows();
+        }
+        if (!cast || this.moon.shadow.mapSize.x === size) return;
         this.moon.shadow.mapSize.set(size, size);
         this.moon.shadow.map?.dispose();
         this.moon.shadow.map = null;
