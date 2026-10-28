@@ -172,9 +172,9 @@ const remember = (key: string, analysis: DrumAnalysis, note: string) => {
 /**
  * What a separation stopped part way keeps, to carry on from (analysis service plan, 2b): the hits it
  * had, and of everything else only what the rest needs - the stem from where the band stream and the
- * energy will read it again up to the last sample a separated segment reached, the weight from where
- * the sum is not yet divided, the bands and the drum energy so far (only as far as they go), and the
- * next segment. Some 0.4 MB plus about 0.3 KB per second separated, against the ~80 MB the decoded
+ * energy will read it again up to the last sample a separated segment reached, the bands and the
+ * drum energy so far (only as far as they go), and the next segment (no weight since the stem pass:
+ * stemPass.ts works it out at each sample). Some 0.4 MB plus about 0.3 KB per second separated, against the ~80 MB the decoded
  * track and the stem take while separating, which are let go. In memory only: a track not finished is
  * never stored, and after a restart it separates from the start.
  */
@@ -185,8 +185,6 @@ interface DrumResume {
     tailStart: number;
     /** The stem in [tailStart, reached): divided up to `divided`, a running sum past it. */
     drums: Float32Array;
-    /** The weight in [divided, reached); before `divided` it is no longer read. */
-    weight: Float32Array;
     /** The bands of the frames before `done`. */
     bands: DrumBands;
     done: number;
@@ -226,7 +224,6 @@ const separateAndRead = async (key: string, bytes: ArrayBuffer, resume: DrumResu
     if (resume && !from) console.info(`[DrumHits] ${key}: the track decodes to another length than when it stopped, separating from the start`);
     if (from) {
         progress.drums.set(from.drums, from.tailStart);
-        progress.weight.set(from.weight, from.divided);
         progress.next = from.next;
         progress.divided = from.divided;
         drumEnergy.set(from.drumEnergy);
@@ -312,7 +309,7 @@ const stopForLater = async (
     total: number,
 ) => {
     let measured = measuredSoFar;
-    const { drums, weight, divided, next } = progress;
+    const { drums, divided, next } = progress;
     for (; measured < divided; measured += 1) drumEnergy[Math.floor(measured / ENERGY_HOP)] += drums[measured] * drums[measured];
     try {
         await stream.advance(drums, divided, false);
@@ -330,7 +327,6 @@ const stopForLater = async (
         divided,
         tailStart,
         drums: drums.slice(tailStart, reached),
-        weight: weight.slice(divided, reached),
         bands: [stream.bands[0].slice(0, stream.done), stream.bands[1].slice(0, stream.done), stream.bands[2].slice(0, stream.done)],
         done: stream.done,
         drumEnergy: drumEnergy.slice(0, Math.ceil(measured / ENERGY_HOP)),
