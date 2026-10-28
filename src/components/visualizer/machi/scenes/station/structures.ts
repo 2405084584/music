@@ -4,6 +4,7 @@ import { boxAt, boxSpan, cylinderAt, group, mesh, tubeBetween } from '../../engi
 import type { MachiMaterials } from '../../engine/materials';
 import {
     APRON,
+    APRON_PROPS,
     CANOPY,
     ISLANDS,
     LEVEL,
@@ -287,19 +288,20 @@ export const buildLotLamp = (materials: MachiMaterials) => {
 export const buildStationProps = (materials: MachiMaterials) => {
     const parts: THREE.Object3D[] = [];
     const dark = materials.toon('darkMetal');
-    // 充气机：罩棚左前柱旁。
-    parts.push(boxAt(materials.toon('brand2'), [0.36, 1.1, 0.3], [1.65, LEVEL.apron, -0.75], { radius: 0.04, name: 'AirPump' }));
-    parts.push(tubeBetween(dark, v(1.75, LEVEL.apron + 0.95, -0.6), v(1.95, LEVEL.apron + 0.1, -0.45), 0.02, { name: 'AirPump/hose', castShadow: false }));
-    // 轮胎堆：罩棚右侧后面。
+    const { airPump, bins, tires } = APRON_PROPS;
+    // 充气机：罩棚左前柱外侧。
+    parts.push(boxAt(materials.toon('brand2'), [airPump.width, 1.1, airPump.depth], [airPump.x, LEVEL.apron, airPump.z], { radius: 0.04, name: 'AirPump' }));
+    parts.push(tubeBetween(dark, v(airPump.x + 0.1, LEVEL.apron + 0.95, airPump.z + 0.15), v(airPump.x + 0.3, LEVEL.apron + 0.1, airPump.z + 0.3), 0.02, { name: 'AirPump/hose', castShadow: false }));
+    // 轮胎堆：右边加油岛的尽头。
     const tire = new THREE.TorusGeometry(0.26, 0.11, 8, 18).rotateX(Math.PI / 2);
     for (let index = 0; index < 4; index += 1) {
         const ring = mesh(tire, materials.toon('rubber'), { name: 'Tire' });
-        ring.position.set(5.5, LEVEL.apron + 0.11 + index * 0.21, -0.35);
+        ring.position.set(tires.x, LEVEL.apron + 0.11 + index * 0.21, tires.z);
         parts.push(ring);
     }
-    // 垃圾箱（两格）与机油架：加油岛旁。
-    [0, 1].forEach(index => {
-        parts.push(boxAt(materials.toon(index === 0 ? 'brand0' : 'brand2'), [0.34, 0.78, 0.34], [2.15 + index * 0.37, LEVEL.apron, -0.75], { radius: 0.03, name: 'Bin' }));
+    // 垃圾箱（两格，充气机后面排成一列）与机油架。
+    bins.z.forEach((z, index) => {
+        parts.push(boxAt(materials.toon(index === 0 ? 'brand0' : 'brand2'), [bins.size, 0.78, bins.size], [bins.x, LEVEL.apron, z], { radius: 0.03, name: 'Bin' }));
     });
     parts.push(boxAt(materials.toon('canopyColumn'), [0.9, 1.0, 0.32], [5.3, LEVEL.apron, -5.55], { radius: 0.03, name: 'OilRack' }));
     for (let index = 0; index < 6; index += 1) {

@@ -90,9 +90,19 @@ export const STALLS = {
 /** 车的尺寸（沿车长、车宽、高）。 */
 export const CAR = { length: 3.2, width: 1.42, height: 1.38 } as const;
 
-/** 加油机旁停着的一辆（沿 x，车头朝 +x），与罩棚前面、加油区外的空地上一辆轻卡（沿 x，让开右边的价格立柱）。 */
-export const PUMP_CAR = { x: 3.65, z: -1.75 } as const;
+/**
+ * 加油区里停着的一辆（沿 x，车头朝 +x），与罩棚前面、加油区外的空地上一辆轻卡（沿 x，让开右边的价格立柱）。
+ * 罩棚前排两根柱子之间只有 2.7m，停不下一辆车（车长 3.2m）：这辆车停在柱子那一排前面，罩棚前沿底下。
+ */
+export const PUMP_CAR = { x: 3.65, z: -0.95 } as const;
 export const KEI_TRUCK = { x: 3.1, z: 1.1 } as const;
+
+/** 加油区的小道具（底面中心）：充气机与两格垃圾箱在左前柱外侧，轮胎堆在右边加油岛的尽头，都让开上面那辆车。 */
+export const APRON_PROPS = {
+    airPump: { x: 1.6, z: -0.75, width: 0.36, depth: 0.3 },
+    bins: { x: 1.6, z: [-1.2, -1.57] as const, size: 0.34 },
+    tires: { x: 5.6, z: -2.9, radius: 0.37 },
+} as const;
 
 /** 路缘后面一排：价格立柱、汽车旅馆的高立牌、场地灯。 */
 export const PYLON = { x: 5.35, z: 1.75, height: 4.1, width: 1.0 } as const;

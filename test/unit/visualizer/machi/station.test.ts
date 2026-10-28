@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { MACHI_BASE } from '@/components/visualizer/machi/engine/geometry/plinth';
 import { MACHI_TRAFFIC_CAR } from '@/components/visualizer/machi/engine/actors/traffic';
-import { CANOPY, CAR, KEI_TRUCK, LOT_LAMP, MOTEL_SIGN, PYLON, ROAD, STALLS, STATION_VIEW, TRUCK, TRUCK_SCREEN } from '@/components/visualizer/machi/scenes/station/layout';
+import { APRON, APRON_PROPS, CANOPY, CAR, ISLANDS, KEI_TRUCK, LOT_LAMP, MOTEL_SIGN, PUMP_CAR, PYLON, ROAD, STALLS, STATION_VIEW, TRUCK, TRUCK_SCREEN } from '@/components/visualizer/machi/scenes/station/layout';
 import { resolveStationVariation } from '@/components/visualizer/machi/scenes/station/stationSeed';
 
 // test/unit/visualizer/machi/station.test.ts
 // 加油站停车场：按歌变的东西是确定的、前排至少一辆出租车（顶灯要滚歌词）；货车屏幕与出租车顶灯都朝 +z，
 // 离默认镜头方向不超过 30°；车位、货车、罩棚互不重叠，都在底座里；开过的车整辆在路上、两条车道并得下两辆车；
-// 路缘后面那排立牌、灯杆、轻卡不压到路，也不碰停着的车。
+// 路缘后面那排立牌、灯杆、轻卡不压到路，也不碰停着的车；加油区那辆车整辆在加油区上，不碰罩棚柱、加油岛和小道具。
 
 describe('station variation', () => {
     it('is deterministic and always parks at least one taxi', () => {
@@ -81,5 +81,31 @@ describe('station layout', () => {
             const overlap = a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1;
             expect(overlap, `${a.name} overlaps ${b.name}`).toBe(false);
         }));
+    });
+
+    it('parks the pump car on the apron, clear of the canopy columns, the islands and the props', () => {
+        // 车沿 x 停：长度加上前后保险杠，宽度加上两边后视镜。
+        const halfLength = CAR.length / 2 + 0.04;
+        const halfWidth = CAR.width / 2 + 0.12;
+        const car = { x0: PUMP_CAR.x - halfLength, x1: PUMP_CAR.x + halfLength, z0: PUMP_CAR.z - halfWidth, z1: PUMP_CAR.z + halfWidth };
+        expect(car.x0).toBeGreaterThan(APRON.x0);
+        expect(car.x1).toBeLessThan(APRON.x1);
+        expect(car.z0).toBeGreaterThan(APRON.z0);
+        expect(car.z1).toBeLessThan(APRON.z1);
+        const square = (name: string, x: number, z: number, half: number) => ({ name, x0: x - half, x1: x + half, z0: z - half, z1: z + half });
+        const { airPump, bins, tires } = APRON_PROPS;
+        const obstacles = [
+            // 柱脚的护墩 0.5m 见方。
+            ...CANOPY.columns.map(([x, z], index) => square(`column${index}`, x, z, 0.25)),
+            ...ISLANDS.z.map((z, index) => ({ name: `island${index}`, x0: ISLANDS.x0, x1: ISLANDS.x1, z0: z - ISLANDS.width / 2, z1: z + ISLANDS.width / 2 })),
+            // 充气机连同软管（软管从机身中心往 +x、+z 各伸出 0.3m 落地）。
+            { name: 'airPump', x0: airPump.x - airPump.width / 2, x1: airPump.x + 0.32, z0: airPump.z - airPump.depth / 2, z1: airPump.z + 0.32 },
+            ...bins.z.map((z, index) => square(`bin${index}`, bins.x, z, bins.size / 2)),
+            square('tires', tires.x, tires.z, tires.radius),
+        ];
+        obstacles.forEach(box => {
+            const overlap = car.x0 < box.x1 && box.x0 < car.x1 && car.z0 < box.z1 && box.z0 < car.z1;
+            expect(overlap, `pump car hits ${box.name}`).toBe(false);
+        });
     });
 });
