@@ -49,6 +49,8 @@ export interface KowloonStreetParts {
     manhole: THREE.Vector3;
     /** 招牌占的地方（楼面上的冷气机、铁笼让开它们）。 */
     signBoxes: THREE.Box3[];
+    /** 楼脚的铺面、贩卖机、杂物各占的地方（墙上的水管碰到就不落地）。 */
+    footing: THREE.Box3[];
 }
 
 const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
@@ -419,8 +421,14 @@ export const buildKowloonStreet = (materials: MachiMaterials, seed: string | num
     const stall = buildStall(materials);
     const pole = buildPole(materials);
     const cables = buildCables(materials, pole.anchors, random);
+    const shopfronts = buildShopfronts(materials);
+    const props = buildProps(materials, random);
+    // 楼脚沿墙拉的电线不算（水管跟电线交叉无所谓）。
+    const footing = [...shopfronts.children, ...props.children]
+        .filter(part => !(part instanceof THREE.Mesh && part.geometry instanceof THREE.TubeGeometry))
+        .map(part => new THREE.Box3().setFromObject(part));
     return {
-        group: group('Street', ground.base, buildShopfronts(materials), hanging.group, billboard.group, stall.group, pole.group, cables, buildProps(materials, random)),
+        group: group('Street', ground.base, shopfronts, hanging.group, billboard.group, stall.group, pole.group, cables, props),
         surface: ground.surface,
         signs: [...hanging.placements, billboard.placement, stall.placement],
         lampHead: pole.lampHead,
@@ -428,6 +436,7 @@ export const buildKowloonStreet = (materials: MachiMaterials, seed: string | num
         wok: stall.wok,
         manhole: ground.manhole,
         signBoxes: HANGING_SIGNS.map(sign => hangingSignBox(sign, 0.08)),
+        footing,
     };
 };
 

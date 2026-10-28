@@ -166,7 +166,7 @@ class KowloonScene implements MachiScene {
             const street = buildKowloonStreet(materials, seed);
             return {
                 street,
-                blocks: buildKowloonBlocks(materials, seed, kowloonWindowAvoid(), [...street.signBoxes, kowloonScreenFront()]),
+                blocks: buildKowloonBlocks(materials, seed, kowloonWindowAvoid(), [...street.signBoxes, kowloonScreenFront()], street.footing),
                 bar: buildKowloonBar(materials, seed),
             };
         });

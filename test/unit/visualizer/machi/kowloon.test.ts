@@ -1,5 +1,8 @@
+import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { MACHI_BASE } from '@/components/visualizer/machi/engine/geometry/plinth';
+import type { MachiMaterials } from '@/components/visualizer/machi/engine/materials';
+import { buildKowloonBlocks } from '@/components/visualizer/machi/scenes/kowloon/blocks';
 import { resolveKowloonHologramText } from '@/components/visualizer/machi/scenes/kowloon/hologram';
 import { resolveKowloonVerticalText } from '@/components/visualizer/machi/scenes/kowloon/kowloonSignPaint';
 import { resolveKowloonTickerText } from '@/components/visualizer/machi/scenes/kowloon/kowloonSigns';
@@ -13,11 +16,13 @@ import {
     SCREEN,
     STALL,
 } from '@/components/visualizer/machi/scenes/kowloon/layout';
+import { buildKowloonStreet, kowloonScreenFront, kowloonWindowAvoid } from '@/components/visualizer/machi/scenes/kowloon/street';
 import type { Line } from '@/types';
 
 // test/unit/visualizer/machi/kowloon.test.ts
 // 城寨酒吧：全息写下一句（跳过空行，没有下一句用译文，曲名卡写曲名与歌手）、跑马灯写译文或曲名、竖招牌的竖排与
-// 转写；楼都在底座里、互不重叠，招牌从楼面伸出来，歌词屏朝着默认镜头，全息、大排档、电线杆都在巷子里。
+// 转写；楼都在底座里、互不重叠，招牌从楼面伸出来，歌词屏朝着默认镜头，全息、大排档、电线杆都在巷子里；
+// 楼面上的水管不压歌词屏、招牌、酒吧门面、楼脚的铺面与窗外的东西，晾的衣服一件挨一件不叠，晾衫竹、冷气机、铁窗笼互不相插。
 
 const line = (text: string, start: number, extra: Partial<Line> = {}): Line => ({
     words: [{ text, startTime: start, endTime: start + 2 }],
@@ -103,5 +108,62 @@ describe('kowloon layout', () => {
         expect(inside(HOLOGRAM.x, 1, HOLOGRAM.z)).toBe(false);
         expect(inside(POLE.x, 1, POLE.z)).toBe(false);
         expect(inside((STALL.x0 + STALL.x1) / 2, 1, (STALL.z0 + STALL.z1) / 2)).toBe(false);
+    });
+});
+
+describe('kowloon facades', () => {
+    const material = new THREE.MeshBasicMaterial();
+    const materials = { toon: () => material, glow: () => material, track: <T>(value: T) => value, product: material } as unknown as MachiMaterials;
+    const seeds = Array.from({ length: 24 }, (_, index) => `song-${index}`);
+    const build = (seed: string) => {
+        const street = buildKowloonStreet(materials, seed);
+        const blocks = buildKowloonBlocks(materials, seed, kowloonWindowAvoid(), [...street.signBoxes, kowloonScreenFront()], street.footing);
+        blocks.group.updateMatrixWorld(true);
+        return { street, blocks };
+    };
+    const named = (root: THREE.Object3D, name: string) => {
+        const boxes: THREE.Box3[] = [];
+        root.traverse(object => {
+            if (object.name === name) boxes.push(new THREE.Box3().setFromObject(object));
+        });
+        return boxes;
+    };
+    // 两个盒子相交（各往里收 1 mm，只是贴着不算）。
+    const overlap = (a: THREE.Box3, b: THREE.Box3) => a.clone().expandByScalar(-0.001).intersectsBox(b.clone().expandByScalar(-0.001));
+
+    it('keeps the drainpipes off the lyric screen, the signs, the bar front, the shopfronts and the window clutter', () => {
+        const bar = BLOCKS.find(block => block.hollow)!;
+        const opening = new THREE.Box3(new THREE.Vector3(bar.hollow!.x0, 0, bar.z1 - 0.05), new THREE.Vector3(bar.hollow!.x1, bar.hollow!.y1, bar.z1 + 0.5));
+        seeds.forEach(seed => {
+            const { street, blocks } = build(seed);
+            const pipes = named(blocks.group, 'Pipe');
+            expect(pipes.length).toBeGreaterThan(10);
+            const keepOut = [...street.signBoxes, kowloonScreenFront(), opening, ...street.footing];
+            pipes.forEach(pipe => keepOut.forEach(box => expect(overlap(pipe, box), seed).toBe(false)));
+            // 也不穿过冷气机、铁窗笼、加建、晾衫竹。
+            const outward = ['AC', 'Cage', 'Addition', 'Bamboo'].flatMap(name => named(blocks.group, name));
+            pipes.forEach(pipe => outward.forEach(box => expect(overlap(pipe, box), seed).toBe(false)));
+        });
+    });
+
+    it('hangs the laundry side by side and keeps the poles, air conditioners and window cages apart', () => {
+        const unit = new THREE.Box3(new THREE.Vector3(-0.5, -0.5, -0.5), new THREE.Vector3(0.5, 0.5, 0.5));
+        const matrix = new THREE.Matrix4();
+        seeds.forEach(seed => {
+            const { blocks } = build(seed);
+            const pieces = Array.from({ length: blocks.clothes.count }, (_, index) => {
+                blocks.clothes.getMatrixAt(index, matrix);
+                return unit.clone().applyMatrix4(matrix);
+            });
+            expect(pieces.length).toBeGreaterThan(10);
+            pieces.forEach((a, index) => pieces.slice(index + 1).forEach(b => expect(overlap(a, b), seed).toBe(false)));
+            // 竹竿与衣服、冷气机、铁窗笼彼此不碰（同一样东西自己的几块除外）。
+            const poles = named(blocks.group, 'Bamboo');
+            const units = named(blocks.group, 'AC');
+            const cages = named(blocks.group, 'Cage');
+            poles.forEach((pole, index) => [...poles.slice(index + 1), ...units, ...cages].forEach(other => expect(overlap(pole, other), seed).toBe(false)));
+            pieces.forEach(piece => [...units, ...cages].forEach(other => expect(overlap(piece, other), seed).toBe(false)));
+            units.forEach(unit => cages.forEach(cage => expect(overlap(unit, cage), seed).toBe(false)));
+        });
     });
 });

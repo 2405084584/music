@@ -8,8 +8,9 @@ import { BLOCKS, FLOORS, LEVEL, type KowloonBlock } from './layout';
 // src/components/visualizer/machi/scenes/kowloon/blocks.ts
 // 城寨楼：每栋一个盒子，朝外的三面（+z、+x、-x）按层按列铺窗。窗格只铺在露在外面的地方（格子前一点的点落在别的楼里
 // 就跳过），也避开歌词屏、招牌。每扇窗随机配一样东西：铁窗笼、窗下的冷气机（下雨时滴水）、伸出去的晾衫竹、
-// 封出去的加建小间；每层一道楼板线，墙上几根水管。夜里按 seed 亮一部分窗（暖黄、日光灯白、偏绿、偏粉），
-// 亮窗和暗窗各一个 InstancedMesh，晾的衫一个 InstancedMesh（实例色）。楼顶：女儿墙、水箱、天线、小屋、锅盖。
+// 封出去的加建小间；每层一道楼板线，两列窗之间几根水管。伸出墙外的东西与水管各占一块地方，后放的让开先放的。
+// 夜里按 seed 亮一部分窗（暖黄、日光灯白、偏绿、偏粉），亮窗和暗窗各一个 InstancedMesh，晾的衫一个 InstancedMesh
+// （实例色）。楼顶：女儿墙、水箱、天线、小屋、锅盖。
 
 export interface KowloonWindowBatch {
     mesh: THREE.InstancedMesh;
@@ -63,6 +64,13 @@ const facePoint = (face: Face, s: number, y: number, out = 0) => face.origin.clo
     .addScaledVector(UP, y)
     .addScaledVector(face.normal, out);
 
+/** 墙面上一块地方的包围盒：沿墙 s0..s1、高 y0..y1、往外 out0..out1。 */
+const faceBounds = (face: Face, s0: number, s1: number, y0: number, y1: number, out0: number, out1: number) => (
+    new THREE.Box3().setFromPoints([facePoint(face, s0, y0, out0), facePoint(face, s1, y1, out1)])
+);
+
+const hitsAny = (box: THREE.Box3, boxes: readonly THREE.Box3[]) => boxes.some(other => other.intersectsBox(box));
+
 /** 贴着墙面的一个盒子：宽沿墙、高、厚沿法线；中心在墙外 out 米。 */
 const faceBox = (material: THREE.Material, face: Face, s: number, y: number, size: [number, number, number], out: number, name: string) => {
     const result = mesh(roundedBox(size[0], size[1], size[2], 0), material, { name });
@@ -108,9 +116,16 @@ const instanced = (geometry: THREE.BufferGeometry, material: THREE.Material, slo
 };
 
 /**
- * 所有的楼。avoid 是不铺窗的地方（歌词屏、广告架）；signs 是招牌占的地方：冷气机、铁笼、晾衫竹都让开它们。
+ * 所有的楼。avoid 是不铺窗的地方（歌词屏、广告架）；signs 是招牌占的地方：冷气机、铁笼、晾衫竹、水管都让开它们；
+ * footing 是楼脚的铺面与杂物：水管碰到它们就只落到一楼楼板。
  */
-export const buildKowloonBlocks = (materials: MachiMaterials, seed: string | number, avoid: readonly THREE.Box3[], signs: readonly THREE.Box3[]): KowloonBlockParts => {
+export const buildKowloonBlocks = (
+    materials: MachiMaterials,
+    seed: string | number,
+    avoid: readonly THREE.Box3[],
+    signs: readonly THREE.Box3[],
+    footing: readonly THREE.Box3[] = [],
+): KowloonBlockParts => {
     const random = createVisualizerRng(`kowloon:blocks:${seed}`);
     const frame = materials.toon('windowFrame');
     const slab = materials.toon('slab');
@@ -125,6 +140,20 @@ export const buildKowloonBlocks = (materials: MachiMaterials, seed: string | num
     const dark: InstanceSlot[] = [];
     const clothes: InstanceSlot[] = [];
     const drips: MachiDrip[] = [];
+    /** 伸出墙外的东西（加建、铁窗笼、冷气机、晾衫竹连衣服）各占的地方：后放的让开先放的，楼上的冷气机不插进楼下的
+     * 晾衫竹、铁窗笼，楼角两面伸出来的竹竿不交叉。claim 放得下就占住。 */
+    const outward: THREE.Box3[] = [];
+    const claim = (box: THREE.Box3) => {
+        if (hitsAny(box, outward)) return false;
+        outward.push(box);
+        return true;
+    };
+    const overhead = [...signs, ...avoid];
+    // 掏空的门面（酒吧）也算楼脚的东西。
+    const ground = [...footing, ...BLOCKS.flatMap(block => (block.hollow ? [new THREE.Box3(
+        new THREE.Vector3(block.hollow.x0, 0, block.z1 - 0.05),
+        new THREE.Vector3(block.hollow.x1, block.hollow.y1, block.z1 + 0.5),
+    )] : []))];
 
     const glass = (face: Face, s: number, y: number, w: number, h: number, out: number) => {
         const slot = { position: facePoint(face, s, y, out), rotationY: face.rotationY, scale: new THREE.Vector3(w, h, 1) };
@@ -162,17 +191,22 @@ export const buildKowloonBlocks = (materials: MachiMaterials, seed: string | num
                     }
                 }
             }
-            // 水管：一两根竖着的。
-            const pipes = 1 + Math.floor(random() * 2);
-            for (let index = 0; index < pipes; index += 1) {
-                const s = 0.2 + random() * (face.width - 0.4);
-                const bottom = facePoint(face, s, 0, 0.09);
-                if (insideAnyBlock(facePoint(face, s, block.height - 0.4, 0.12))) continue;
-                const result = cylinderAt(pipe, 0.045, block.height - 0.1, [bottom.x, 0, bottom.z], { name: 'Pipe', segments: 6 });
-                parts.push(result);
-            }
             const columns = Math.max(1, Math.floor((face.width - 0.2) / 0.64));
             const spacing = face.width / columns;
+            // 水管：一两根竖着的，走在两列窗之间（只有一列窗就贴着楼角），从楼顶下来。挡着歌词屏、招牌的不装；
+            // 楼脚有铺面、杂物、掏空的门面，就只落到一楼楼板。水管也占地方，旁边的铁窗笼、加建让开它。
+            const pipes = 1 + Math.floor(random() * 2);
+            for (let index = 0; index < pipes; index += 1) {
+                const pick = random();
+                const s = columns > 1 ? (1 + Math.floor(pick * (columns - 1))) * spacing : (pick < 0.5 ? 0.12 : face.width - 0.12);
+                if (insideAnyBlock(facePoint(face, s, block.height - 0.4, 0.12))) continue;
+                const top = block.height - 0.1;
+                const bottom = hitsAny(faceBounds(face, s - 0.05, s + 0.05, 0, FLOORS.ground, 0.04, 0.14), ground) ? FLOORS.ground - 0.03 : 0;
+                const bounds = faceBounds(face, s - 0.05, s + 0.05, bottom, top, 0.04, 0.14);
+                if (hitsAny(bounds, overhead) || !claim(bounds)) continue;
+                const at = facePoint(face, s, 0, 0.09);
+                parts.push(cylinderAt(pipe, 0.045, top - bottom, [at.x, bottom, at.z], { name: 'Pipe', segments: 6 }));
+            }
             for (let y = FLOORS.ground; y + 0.85 <= block.height - 0.15; y += FLOORS.height) {
                 for (let column = 0; column < columns; column += 1) {
                     const s = (column + 0.5) * spacing + (random() - 0.5) * 0.08;
@@ -184,7 +218,7 @@ export const buildKowloonBlocks = (materials: MachiMaterials, seed: string | num
                     const nearSign = (out: number, dy = 0) => [-0.26, 0, 0.26].some(ds => insideAny(facePoint(face, s + ds, center + dy, out), blocked));
                     const roll = random();
                     // 封出去的加建小间：自己一扇小窗。
-                    if (!outer && roll < 0.08 && !nearSign(0.3)) {
+                    if (!outer && roll < 0.08 && !nearSign(0.3) && claim(faceBounds(face, s - 0.3, s + 0.3, y + 0.06, y + 0.92, 0, 0.4))) {
                         const color = random() < 0.5 ? 'wallD' : 'wallB';
                         parts.push(faceBox(materials.toon(color), face, s, y + 0.06, [0.6, 0.86, 0.4], 0.2, 'Addition'));
                         parts.push(faceBox(frame, face, s, y + 0.3, [0.42, 0.44, 0.04], 0.41, 'Frame'));
@@ -195,7 +229,7 @@ export const buildKowloonBlocks = (materials: MachiMaterials, seed: string | num
                     parts.push(faceBox(slab, face, s, center - 0.33, [0.52, 0.04, 0.12], 0.02, 'Sill'));
                     glass(face, s, center, 0.36, 0.48, 0.035);
                     if (outer) continue;
-                    if (roll < 0.36 && !nearSign(0.15)) {
+                    if (roll < 0.36 && !nearSign(0.15) && claim(faceBounds(face, s - 0.27, s + 0.27, center - 0.37, center + 0.37, 0, 0.25))) {
                         // 铁窗笼：顶板、底板、前面几根竖枝、一道横枝、两侧的竖枝。
                         const material = cageMaterials[random() < 0.35 ? 1 : 0]!;
                         const depth = 0.24;
@@ -208,7 +242,7 @@ export const buildKowloonBlocks = (materials: MachiMaterials, seed: string | num
                         [-0.25, 0.25].forEach(ds => parts.push(faceBox(material, face, s + ds, center, [0.02, 0.02, depth], depth / 2, 'Cage')));
                         // 笼里偶尔一盆绿。
                         if (random() < 0.4) parts.push(faceBox(materials.toon('plant'), face, s + (random() - 0.5) * 0.24, bottom, [0.14, 0.14, 0.14], 0.14, 'Plant'));
-                    } else if (roll < 0.7 && !nearSign(0.2, -0.4)) {
+                    } else if (roll < 0.7 && !nearSign(0.2, -0.4) && claim(faceBounds(face, s - 0.21, s + 0.21, center - 0.72, center - 0.42, 0, 0.33))) {
                         // 冷气机：窗下，伸出墙外，前面一块深色格栅；下雨时前沿滴水。
                         const acY = center - 0.72;
                         parts.push(faceBox(ac, face, s, acY, [0.42, 0.3, 0.32], 0.16, 'AC'));
@@ -221,8 +255,8 @@ export const buildKowloonBlocks = (materials: MachiMaterials, seed: string | num
                             const at = facePoint(face, s + 0.12, acY, 0.3);
                             drips.push({ x: at.x, z: at.z, from: acY, to: LEVEL.ground, period: 1.4 + random() * 2.2, phase: random() });
                         }
-                    } else if (roll < 0.82 && !nearSign(0.6, 0.35)) {
-                        // 晾衫竹：从窗台下伸出去，挂两三件。
+                    } else if (roll < 0.82 && !nearSign(0.6, 0.35) && claim(faceBounds(face, s - 0.03, s + 0.03, center - 0.08, center + 0.4, 0, 0.96))) {
+                        // 晾衫竹：从窗顶伸出去，挂两三件。
                         const poleY = center + 0.38;
                         const from = facePoint(face, s, poleY, 0.02);
                         const to = facePoint(face, s, poleY, 0.95);
@@ -230,18 +264,31 @@ export const buildKowloonBlocks = (materials: MachiMaterials, seed: string | num
                         result.position.copy(from).add(to).multiplyScalar(0.5);
                         result.quaternion.setFromUnitVectors(UP, face.normal);
                         parts.push(result);
+                        // 衣服都在竹竿下同一个平面里，一件挨一件、中间留缝（叠着的两件会闪）；挂不下就一起收窄。
                         const count = 2 + Math.floor(random() * 2);
-                        for (let index = 0; index < count; index += 1) {
-                            const w = 0.16 + random() * 0.12;
-                            const h = 0.26 + random() * 0.18;
-                            const out = 0.22 + (index + random() * 0.4) * (0.68 / count);
+                        const pieces = Array.from({ length: count }, () => ({
+                            w: 0.16 + random() * 0.12,
+                            h: 0.26 + random() * 0.18,
+                            shift: random(),
+                            color: CLOTHES[Math.floor(random() * CLOTHES.length)],
+                        }));
+                        const [near, far, gap] = [0.12, 0.92, 0.03];
+                        const room = far - near - gap * (count - 1);
+                        const total = pieces.reduce((sum, piece) => sum + piece.w, 0);
+                        const narrow = Math.min(1, room / total);
+                        const slack = (room - total * narrow) / count;
+                        let out = near;
+                        pieces.forEach(piece => {
+                            const w = piece.w * narrow;
+                            out += slack * piece.shift;
                             clothes.push({
-                                position: facePoint(face, s, poleY - h / 2 - 0.01, out),
+                                position: facePoint(face, s, poleY - piece.h / 2 - 0.01, out + w / 2),
                                 rotationY: face.rotationY + Math.PI / 2,
-                                scale: new THREE.Vector3(w, h, 0.018),
-                                color: CLOTHES[Math.floor(random() * CLOTHES.length)],
+                                scale: new THREE.Vector3(w, piece.h, 0.018),
+                                color: piece.color,
                             });
-                        }
+                            out += w + gap + slack * (1 - piece.shift);
+                        });
                     }
                 }
             }
