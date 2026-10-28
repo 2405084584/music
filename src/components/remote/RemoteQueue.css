@@ -21,13 +21,15 @@
   user-select: none;
 }
 
+/* Its height is set on it (what the window grew by, less the gap). Below the card it follows a
+   longer or shorter queue smoothly (useRemoteQueue sizes the window around that); above, the
+   window's top edge moves and the page is faded out meanwhile, so it just takes the new height. */
 .remote-window[data-queue='down'] .remote-queue {
   top: 186px;
-  bottom: 4px;
+  transition: height 220ms var(--remote-settle);
 }
 
 .remote-window[data-queue='up'] .remote-queue {
-  top: 4px;
   bottom: 186px;
 }
 

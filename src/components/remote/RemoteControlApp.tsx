@@ -154,6 +154,7 @@ const RemoteControlApp: React.FC = () => {
             data-sheet={sheet.isOpen}
             data-notitle={presentation.hideTitlebar || isDisplayOnly}
             data-queue={queue.direction ?? undefined}
+            data-shifting={queue.isShifting}
             onFocus={event => setHasKeyboardFocus(event.target.matches(':focus-visible'))}
             onBlur={() => setHasKeyboardFocus(false)}
         >
@@ -239,9 +240,11 @@ const RemoteControlApp: React.FC = () => {
             </div>
 
             <AnimatePresence>
-                {queue.isShown && (
+                {queue.isShown && queue.direction && (
                     <RemoteQueue
                         key="queue"
+                        direction={queue.direction}
+                        height={queue.panelHeight}
                         items={snapshot.queue ?? []}
                         currentKey={snapshot.trackKey}
                         playingKey={snapshot.queuePlayingKey ?? null}

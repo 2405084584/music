@@ -3,11 +3,11 @@ import { motion } from 'framer-motion';
 import { List, useListRef } from 'react-window';
 import { Search, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { RemoteQueueCommandType, RemoteQueueItem } from '../../types/remoteControl';
+import type { RemoteQueueCommandType, RemoteQueueExpansion, RemoteQueueItem } from '../../types/remoteControl';
 import { filterRemoteQueue } from './remoteQueueSearch';
 import { RemoteQueueRow, type RemoteQueueRowProps } from './RemoteQueueRow';
 import { REMOTE_NO_DRAG_STYLE, sendRemoteCommand } from './remoteWindowBridge';
-import { REMOTE_QUEUE_ROW_HEIGHT } from './useRemoteQueue';
+import { REMOTE_QUEUE_FOLD_MS, REMOTE_QUEUE_ROW_HEIGHT, REMOTE_QUEUE_UNFOLD_MS } from './useRemoteQueue';
 import './RemoteQueue.css';
 
 // src/components/remote/RemoteQueue.tsx
@@ -15,8 +15,28 @@ import './RemoteQueue.css';
 // virtual list (react-window). A row plays its song; its three actions edit the queue; every
 // command names the row by its key, so the main window still finds it if the queue moved since.
 // Opening puts the audible song in the middle; a new song scrolls to it only if it is out of view.
+// It unfolds out of the card's edge (a clip that opens away from the card, with a short slide)
+// and folds back into it, at the card's own easing for settling into the sleeve.
+
+/** The card's settle (remote.css --remote-settle) and a quicker fold. */
+const UNFOLD_EASE = [0.32, 0.72, 0, 1] as const;
+const FOLD_EASE = [0.4, 0, 0.7, 0.2] as const;
+/** The clip reaches this far past the block when open, so its shadow is not cut. */
+const CLIP_BLEED = 4;
+
+/** The block's clip: open, or shut against the card's edge (`height` px of the block cut away from the far side). */
+const queueClip = (direction: RemoteQueueExpansion['direction'], shut: number) => {
+    const far = shut ? shut + CLIP_BLEED : -CLIP_BLEED;
+    return direction === 'down'
+        ? `inset(${-CLIP_BLEED}px ${-CLIP_BLEED}px ${far}px ${-CLIP_BLEED}px round 22px)`
+        : `inset(${far}px ${-CLIP_BLEED}px ${-CLIP_BLEED}px ${-CLIP_BLEED}px round 22px)`;
+};
 
 type RemoteQueueProps = {
+    /** Which side of the card it hangs off. */
+    direction: RemoteQueueExpansion['direction'];
+    /** The block's height in px. */
+    height: number;
     items: readonly RemoteQueueItem[];
     currentKey: string | null;
     playingKey: string | null;
@@ -28,6 +48,8 @@ type RemoteQueueProps = {
 };
 
 const RemoteQueue: React.FC<RemoteQueueProps> = ({
+    direction,
+    height,
     items,
     currentKey,
     playingKey,
@@ -145,11 +167,24 @@ const RemoteQueue: React.FC<RemoteQueueProps> = ({
         <motion.section
             className="remote-queue"
             aria-label={t('remote.queue')}
-            style={REMOTE_NO_DRAG_STYLE}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: reduceMotion ? 0 : 0.16, ease: 'easeOut' }}
+            style={{ ...REMOTE_NO_DRAG_STYLE, height }}
+            initial={reduceMotion
+                ? { opacity: 0 }
+                : { opacity: 0.4, clipPath: queueClip(direction, height), y: direction === 'down' ? -8 : 8 }}
+            animate={{
+                opacity: 1,
+                clipPath: queueClip(direction, 0),
+                y: 0,
+                transition: { duration: reduceMotion ? 0 : REMOTE_QUEUE_UNFOLD_MS / 1000, ease: UNFOLD_EASE },
+            }}
+            exit={reduceMotion
+                ? { opacity: 0, transition: { duration: 0 } }
+                : {
+                    opacity: 0,
+                    clipPath: queueClip(direction, height),
+                    y: direction === 'down' ? -6 : 6,
+                    transition: { duration: REMOTE_QUEUE_FOLD_MS / 1000, ease: FOLD_EASE },
+                }}
         >
             <label className="remote-queue-search">
                 <Search size={13} aria-hidden="true" />
@@ -178,7 +213,13 @@ const RemoteQueue: React.FC<RemoteQueueProps> = ({
                     </button>
                 )}
             </label>
-            <div ref={frameRef} className="remote-queue-list">
+            <motion.div
+                ref={frameRef}
+                className="remote-queue-list"
+                // The rows come in just behind the edge, so the block opens before it fills.
+                initial={reduceMotion ? false : { opacity: 0 }}
+                animate={{ opacity: 1, transition: { duration: reduceMotion ? 0 : 0.22, delay: reduceMotion ? 0 : 0.08, ease: 'easeOut' } }}
+            >
                 {items.length === 0 ? (
                     <p className="remote-queue-note">{t('queue.empty')}</p>
                 ) : matches.length === 0 ? (
@@ -196,7 +237,7 @@ const RemoteQueue: React.FC<RemoteQueueProps> = ({
                         style={{ height: listHeight ?? 0 }}
                     />
                 )}
-            </div>
+            </motion.div>
         </motion.section>
     );
 };

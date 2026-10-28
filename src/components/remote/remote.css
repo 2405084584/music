@@ -27,6 +27,15 @@
   line-height: normal;
   -webkit-font-smoothing: antialiased;
   user-select: none;
+  transition: opacity 140ms ease-out;
+}
+
+/* The window's top edge is moving to show or hide the queue above the card (useRemoteQueue): the
+   compositor would show the last frame at the new spot, so nothing is drawn until the page has
+   laid itself out at the new size. */
+.remote-window[data-shifting='true'] {
+  opacity: 0;
+  transition: opacity 90ms ease-out;
 }
 
 .remote-window[data-theme='light'] {
