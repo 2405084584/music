@@ -7,12 +7,12 @@ import {
 } from './drumHitPicking';
 import { DRUM_HITS_PREFIX } from './beatGridKeys';
 import { createDrumBandStream, streamNeedsFrom, type DrumBands } from './drumHitStream';
-import { drumStemSegments, separateDrumStem, startDrumStem, type DrumStemProgress } from './drumStem';
+import { drumStemSegments, startDrumStem, type DrumStemProgress } from './drumStem';
+import type { StemReader } from './stemPass';
+import { runTrackStems, setWantedStemTrack, stemTrackWanted, type StemTask } from './trackStemRun';
 import { dropStemDrums, setStemDrumsKeptListener } from './stemRange';
 import { HTDEMUCS_GPU_SEGMENT } from './beatThisGpu';
 import { modelCanRun } from './modelAvailability';
-import { decodeAtRate } from './trackAudio';
-import { decodeTrackAtRate } from './trackBytes';
 
 // src/services/analysis/drumHits.ts
 // A whole track's drum hits, read off htdemucs' drum stem (drumStem.ts, the renderer's GPU) and kept:
@@ -32,7 +32,7 @@ import { decodeTrackAtRate } from './trackBytes';
 // on screen: a separation stopped on a picture switch threw away what it had, and coming back to 时计
 // separated the track again from the start. Under 智能动感模式's `cached` nothing separates: only a
 // stored analysis is read (`loadStoredDrumHits`), and switching to it stops a separation as leaving the
-// track does - its hits so far go with it (the `finally` in separateAndRead).
+// track does - its hits so far go with it (the `finally` in loadTrackDrumHits).
 // (From the PR #750 review: the two sentences above on a picture switch are PR #734's; since the
 // analysis service's 2b a picture switch stops the separation again, and it keeps where it was and
 // the hits so far (DrumResume) to carry on from - see the note at the end of hooks/useBeatFxTrack.ts.)
@@ -55,6 +55,8 @@ export type { DrumAnalysis, DrumHitKind, DrumHits } from './drumHitPicking';
 
 /** htdemucs' rate. A change to the stem or the picking bumps the version in DRUM_HITS_PREFIX. */
 const STEM_RATE = 44100;
+/** The drum hits' kind on a track's stem run (trackStemRun.ts). */
+export const DRUM_HITS_TASK = 'drum hits';
 
 /** Whether the GPU drum stem can run here: htdemucs_gpu installed and a WebGPU to run it on. */
 export const canRunDrumStem = (): boolean =>
@@ -83,8 +85,6 @@ const runs = new Map<string, Promise<DrumAnalysis | null>>();
 /** Hit lists kept in memory; the analyses themselves are on disk. */
 const MAX_TRACKS = 24;
 
-/** The track whose separation may run; any other in flight stops at its next segment. */
-let wanted: string | null = null;
 
 /**
  * Names the track whose drum hits are wanted now, or null for none (it was left, or 智能动感模式 is
@@ -93,7 +93,7 @@ let wanted: string | null = null;
  * DrumResume) or the switch goes off.
  */
 export const setWantedDrumTrack = (key: string | null): void => {
-    wanted = key;
+    setWantedStemTrack(key);
 };
 
 /** The drum hits of `key`, or null when the track has none (yet, or drumless). */
@@ -207,94 +207,111 @@ const keepResume = (key: string, resume: DrumResume) => {
     }
 };
 
-const separateAndRead = async (key: string, bytes: ArrayBuffer, resume: DrumResume | null = null): Promise<DrumAnalysis | null> => {
-    const started = performance.now();
-    const buffer = await decodeTrackAtRate(key, STEM_RATE, bytes, decodeAtRate, 'drum hits', 'own');
-    if (!buffer) return null;
-    const left = buffer.getChannelData(0);
-    const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left;
-    const mix = new Float32Array(buffer.length);
-    for (let at = 0; at < mix.length; at += 1) mix[at] = (left[at] + right[at]) / 2;
-    const mixEnergy = energyFrames(mix);
-    const drumEnergy = new Float32Array(mixEnergy.length);
-    let measured = 0;
-    const progress = startDrumStem(buffer.length);
-    // Carried on only from a stop of this very decode's length; anything else starts again.
-    const from = resume && resume.total === buffer.length ? resume : null;
-    if (resume && !from) console.info(`[DrumHits] ${key}: the track decodes to another length than when it stopped, separating from the start`);
-    if (from) {
-        progress.drums.set(from.drums, from.tailStart);
-        progress.next = from.next;
-        progress.divided = from.divided;
-        drumEnergy.set(from.drumEnergy);
-        measured = from.measured;
-        console.info(`[DrumHits] ${key}: carrying on from ${(from.divided / STEM_RATE).toFixed(1)}s`);
-    }
-    // Kept until this run stops again (and keeps its own) or finishes: a run that throws loses nothing.
-    if (resume && !from) resumes.delete(key);
-    const stream = createDrumBandStream(buffer.length, { resample, mel: melSpectrogramOffThread, bands: drumBandTracks }, from ? { bands: from.bands, done: from.done } : undefined);
-    // The hits of the head so far, for 时计 while the rest separates (see the header).
-    const pickLive = async (drums: Float32Array, final: number) => {
-        for (; measured < final; measured += 1) drumEnergy[Math.floor(measured / ENERGY_HOP)] += drums[measured] * drums[measured];
-        await stream.advance(drums, final, false);
-        if (wanted !== key) return;
-        const windows = Math.floor(final / ENERGY_HOP / SHARE_WINDOW) * SHARE_WINDOW;
-        if (drumCoverage(drumEnergy.subarray(0, windows), mixEnergy.subarray(0, windows)) < DRUMLESS_COVERAGE) {
-            hitLists.delete(key);
-            return;
+/**
+ * The drum hits as a task on the track's stem run (trackStemRun.ts): one drum reader on its pass, the
+ * whole stem laid into `progress.drums`; the live picks as segments come in, the analysis at the end,
+ * and what carries it on when the run stops first (DrumResume) - the stopped run's own `resume` taken
+ * up here when it was of this decode's length.
+ */
+const drumHitsTask = (key: string, resume: DrumResume | null): StemTask<DrumAnalysis | null> => ({
+    kind: DRUM_HITS_TASK,
+    open: ({ left, right }) => {
+        const started = performance.now();
+        const total = left.length;
+        const mix = new Float32Array(total);
+        for (let at = 0; at < total; at += 1) mix[at] = (left[at] + right[at]) / 2;
+        const mixEnergy = energyFrames(mix);
+        const drumEnergy = new Float32Array(mixEnergy.length);
+        let measured = 0;
+        const progress = startDrumStem(total);
+        // Carried on only from a stop of this very decode's length; anything else starts again.
+        const from = resume && resume.total === total ? resume : null;
+        if (resume && !from) console.info(`[DrumHits] ${key}: the track decodes to another length than when it stopped, separating from the start`);
+        if (from) {
+            progress.drums.set(from.drums, from.tailStart);
+            progress.next = from.next;
+            progress.divided = from.divided;
+            drumEnergy.set(from.drumEnergy);
+            measured = from.measured;
+            console.info(`[DrumHits] ${key}: carrying on from ${(from.divided / STEM_RATE).toFixed(1)}s`);
         }
-        const until = Math.max(0, stream.done - liveTailFrames()) / BEAT_THIS_FPS;
-        const hits = pickBandHits(stream.bands, stream.done);
-        const count = hits.times.findIndex(time => time >= until);
-        const head = count < 0 ? hits.times.length : count;
-        if (!shown) {
-            shown = true;
-            console.info(`[DrumHits] ${key}: live hits ${((performance.now() - started) / 1000).toFixed(1)}s in, to ${until.toFixed(1)}s of the track`);
-        }
-        keep(key, {
-            times: hits.times.slice(0, head),
-            strengths: hits.strengths.slice(0, head),
-            kinds: hits.kinds.slice(0, head),
-            until,
-        });
-    };
-    let shown = false;
-    let live: Promise<void> | null = null;
-    let liveAt = -Infinity;
-    let complete = false;
-    try {
-        const drums = await separateDrumStem(left, right, (_done, _count, stem, final) => {
-            if (live || final < LIVE_MIN_SECONDS * STEM_RATE || performance.now() - liveAt < LIVE_EVERY_MS) return;
-            liveAt = performance.now();
-            live = pickLive(stem, final)
-                .catch(error => console.warn(`[DrumHits] ${key}: live hits failed`, error))
-                .finally(() => { live = null; });
-        }, () => wanted === key, progress, key);
-        await live;
-        if (!drums) {
-            if (wanted !== key) console.info(`[DrumHits] ${key}: separation stopped at ${(progress.divided / STEM_RATE).toFixed(1)}s, the track or the picture was left`);
-            if (progress.next > 0) await stopForLater(key, progress, stream, drumEnergy, measured, buffer.length);
-            return null;
-        }
-        // The energy the live picks summed so far, finished to the end: the same sums in the same order
-        // as `energyFrames(drums)`, so the same bits, without the stem's head (gone after a resume).
-        for (; measured < drums.length; measured += 1) drumEnergy[Math.floor(measured / ENERGY_HOP)] += drums[measured] * drums[measured];
-        await stream.advance(drums, drums.length, true);
-        const analysis: DrumAnalysis = {
-            hits: pickBandHits(stream.bands, stream.frames),
-            drumEnergy,
-            mixEnergy,
+        // Kept until this run stops again (and keeps its own) or finishes: a run that throws loses nothing.
+        if (resume && !from) resumes.delete(key);
+        const stream = createDrumBandStream(total, { resample, mel: melSpectrogramOffThread, bands: drumBandTracks }, from ? { bands: from.bands, done: from.done } : undefined);
+        // The hits of the head so far, for 时计 while the rest separates (see the header).
+        const pickLive = async (drums: Float32Array, final: number) => {
+            for (; measured < final; measured += 1) drumEnergy[Math.floor(measured / ENERGY_HOP)] += drums[measured] * drums[measured];
+            await stream.advance(drums, final, false);
+            if (!stemTrackWanted(key)) return;
+            const windows = Math.floor(final / ENERGY_HOP / SHARE_WINDOW) * SHARE_WINDOW;
+            if (drumCoverage(drumEnergy.subarray(0, windows), mixEnergy.subarray(0, windows)) < DRUMLESS_COVERAGE) {
+                hitLists.delete(key);
+                return;
+            }
+            const until = Math.max(0, stream.done - liveTailFrames()) / BEAT_THIS_FPS;
+            const hits = pickBandHits(stream.bands, stream.done);
+            const count = hits.times.findIndex(time => time >= until);
+            const head = count < 0 ? hits.times.length : count;
+            if (!shown) {
+                shown = true;
+                console.info(`[DrumHits] ${key}: live hits ${((performance.now() - started) / 1000).toFixed(1)}s in, to ${until.toFixed(1)}s of the track`);
+            }
+            keep(key, {
+                times: hits.times.slice(0, head),
+                strengths: hits.strengths.slice(0, head),
+                kinds: hits.kinds.slice(0, head),
+                until,
+            });
         };
-        complete = true;
-        resumes.delete(key);
-        remember(key, analysis, `separated in ${((performance.now() - started) / 1000).toFixed(1)}s`);
-        await saveToCache(`${DRUM_HITS_PREFIX}${key}`, analysis);
-        return analysis;
-    } finally {
-        // A separation left or failed part way leaves no hits behind: a later play would read them as whole.
-        if (!complete && getDrumHits(key)?.until !== undefined) hitLists.delete(key);
-    }
-};
+        let shown = false;
+        let live: Promise<void> | null = null;
+        let liveAt = -Infinity;
+        const reader: StemReader = {
+            source: 'drums',
+            next: progress.next,
+            divided: progress.divided,
+            window: { samples: progress.drums, base: 0 },
+            read: (final) => {
+                progress.next = reader.next;
+                progress.divided = final;
+                if (!live && final >= LIVE_MIN_SECONDS * STEM_RATE && performance.now() - liveAt >= LIVE_EVERY_MS) {
+                    liveAt = performance.now();
+                    live = pickLive(progress.drums, final)
+                        .catch(error => console.warn(`[DrumHits] ${key}: live hits failed`, error))
+                        .finally(() => { live = null; });
+                }
+                // The whole stem stays: the live picks read it after the segment is in.
+                return 0;
+            },
+        };
+        return {
+            readers: [reader],
+            finish: async () => {
+                await live;
+                const drums = progress.drums;
+                // The energy the live picks summed so far, finished to the end: the same sums in the same order
+                // as `energyFrames(drums)`, so the same bits, without the stem's head (gone after a resume).
+                for (; measured < drums.length; measured += 1) drumEnergy[Math.floor(measured / ENERGY_HOP)] += drums[measured] * drums[measured];
+                await stream.advance(drums, drums.length, true);
+                const analysis: DrumAnalysis = {
+                    hits: pickBandHits(stream.bands, stream.frames),
+                    drumEnergy,
+                    mixEnergy,
+                };
+                resumes.delete(key);
+                remember(key, analysis, `separated in ${((performance.now() - started) / 1000).toFixed(1)}s`);
+                await saveToCache(`${DRUM_HITS_PREFIX}${key}`, analysis);
+                return analysis;
+            },
+            stop: async () => {
+                await live;
+                if (!stemTrackWanted(key)) console.info(`[DrumHits] ${key}: separation stopped at ${(progress.divided / STEM_RATE).toFixed(1)}s, the track or the picture was left`);
+                if (progress.next > 0) await stopForLater(key, progress, stream, drumEnergy, measured, total);
+                return null;
+            },
+        };
+    },
+});
 
 /**
  * Keeps what a separation stopped at a segment boundary needs to carry on (DrumResume): the energy and
@@ -363,25 +380,24 @@ export const loadTrackDrumHits = (key: string, readBytes: () => Promise<ArrayBuf
     // Joined - but a run whose track was left and is wanted again before it reached its next segment
     // is stopping, and answers null: then one fresh run, rather than no hits for the rest of the play.
     // Only on null: a drumless track answers an analysis, and is not separated again.
-    if (existing) return existing.then(found => (found === null && wanted === key && !runs.has(key) ? loadTrackDrumHits(key, readBytes) : found));
+    if (existing) return existing.then(found => (found === null && stemTrackWanted(key) && !runs.has(key) ? loadTrackDrumHits(key, readBytes) : found));
     const run = (async (): Promise<DrumAnalysis | null> => {
         const stored = await getFromCache<DrumAnalysis>(`${DRUM_HITS_PREFIX}${key}`);
         if (isDrumAnalysis(stored)) {
             remember(key, stored, 'from the cache');
             return stored;
         }
-        if (!canRunDrumStem() || wanted !== key) return null;
+        if (!canRunDrumStem() || !stemTrackWanted(key)) return null;
         // A separation stopped earlier: its hits play at once, while the track decodes again.
         const resume = resumes.get(key) ?? null;
         if (resume?.hits) keep(key, resume.hits);
         let analysis: DrumAnalysis | null = null;
         try {
-            const bytes = await readBytes();
-            analysis = bytes ? await separateAndRead(key, bytes, resume) : null;
+            analysis = await runTrackStems(key, readBytes, drumHitsTask(key, resume));
             return analysis;
         } finally {
-            // Hits put back from a stop, and no separation got under way (no bytes, no decode): taken
-            // off again, like any a separation left part way leaves.
+            // Hits put back from a stop, or picked live, and no analysis came (no bytes, no decode, a
+            // separation left or failed part way): taken off again - a later play would read them as whole.
             if (!analysis && getDrumHits(key)?.until !== undefined) hitLists.delete(key);
         }
     })().catch((error) => {
