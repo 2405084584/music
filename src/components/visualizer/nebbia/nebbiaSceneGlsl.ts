@@ -3,7 +3,7 @@ import { NEBBIA_SPOT_GLSL } from './nebbiaSpotGlsl';
 // src/components/visualizer/nebbia/nebbiaSceneGlsl.ts
 // 公交车侧窗外的雨夜街景（GLSL，主着色器和雾的预渲染共用）：远近两层楼群、主题色霓虹散景、路灯招牌、湿路面倒影、
 // 车灯、斜着落的雨，和打向正在唱的字的两盏聚光灯。scene(q, b) 里 b 是模糊半径（屏高的比例），雾后面的窗外用大的 b。
-// 着色器从原型（feat/fog-write-prototype 分支 dev/prototypes/fog-write/index.html）原样搬来，没有改画面。
+// 着色器从原型（feat/fog-write-prototype 分支 dev/prototypes/fog-write/index.html）搬来；格子伪随机数 h1 后来换成了纯算术哈希，分布不变、每格的样子和原型不同。
 export const NEBBIA_SCENE_GLSL = /* glsl */ `
 float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 // 格子编号 → 0..1 的伪随机数（Dave Hoskins 的 hash11）。原来用 fract(sin(n) × 43758)，sin 的精度各家驱动不一样、

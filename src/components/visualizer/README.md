@@ -233,7 +233,7 @@ Visualizer 消费已解析的 `LyricData` / `Line` / `Word`，不负责解析 `.
 雾笺：下雨天公交车起雾的车窗上，手指一笔一笔写歌词，写过的地方透出窗外的雨夜街景，过一会儿重新起雾。原型在 `feat/fog-write-prototype` 分支的 `dev/prototypes/fog-write/`（独立 HTML，参数可调），这里是接入版。快速定位：
 
 - `nebbia/VisualizerNebbia.tsx`：React shell / subtitle；`createNebbiaRuntime.ts`：运行时（WebGL2，建一次，换歌、tuning、主题就地推进去；暂停时停循环、拖进度补一帧；静态模式照常写字，窗外匀速走，不颠簸、没有小雨点）；`nebbiaSceneClock.ts`：窗外时钟（float32 精度：走过 1000 秒后换歌时归零，一首连放满 3600 秒才硬回绕）；`nebbiaFrameUniforms.ts`：主着色器每帧的 uniform
-- `nebbiaGl.ts`（`nebbiaGlUtils.ts`：编译链接、建纹理）+ `nebbiaShaders.ts` + `nebbiaSceneGlsl.ts`：一个全屏着色器。窗外夜景（楼群、霓虹、路灯、倒影、车灯、雨）两层模糊版本先在 1/4 分辨率的 RGBA16F 上算好（雾的预渲染，没有 `EXT_color_buffer_float` 或那个 FBO 拼不完整时主画面自己算），主画面合成雾、擦痕、水珠折射；水珠是 raindrop-fx（MIT）的法线精灵，实例化画进两张水珠纹理
+- `nebbiaGl.ts`（`nebbiaGlUtils.ts`：编译链接、建纹理）+ `nebbiaShaders.ts` + `nebbiaSceneGlsl.ts`（`nebbiaSpotGlsl.ts`：聚光灯光柱）：一个全屏着色器。窗外夜景（楼群、霓虹、路灯、倒影、车灯、雨）两层模糊版本先在 1/4、1/8 分辨率的 RGBA16F 上算好（`nebbiaFogGl.ts`，雾的预渲染，没有 `EXT_color_buffer_float` 或 FBO 拼不完整时主画面自己算），主画面合成雾、擦痕、水珠折射；擦痕边、起雾大块和闪点的静态噪声改尺寸时算进一张纹理（`nebbiaNoiseTex.ts`）；水珠是 raindrop-fx（MIT）的法线精灵，实例化画进两张水珠纹理
 - `nebbiaChars.ts`：`Line` → 逐字 `{ ch, t, d }`（`buildLineGraphemeTimeline`），emoji 换成 lucide 图标，词分组走 `segmentLyricWords`（所以 `usesWordSegmentation`）；句尾随手画的图标取主题 `lyricsIcons`
 - `nebbiaBlocks.ts` + `nebbiaCompositions.ts` + `nebbiaLayout.ts`：照商籁的主词 / 副主词 / 虚词和横条、十字、竖柱、刊头等构图排整首，避开这句出现时还没消失的句子；用户字号是排版字号的倍数
 - `nebbiaScene.ts`：每个字的位置、手写变形、水珠，出现方式（快的句子慢慢显现），让位（后一句要写到这句位置时这句提前起雾）；`nebbiaWipe.ts`：手指抹掉

@@ -15,7 +15,7 @@ uniform sampler2D uMask, uDrop, uField;
 uniform sampler2D uBreath; uniform bool uBreathOn; uniform float uBreathThick;
 uniform vec2 uRes, uGlassShift, uSceneShift; uniform float uTime, uMist, uEdge, uRefract, uBus, uGlint, uNeon;
 uniform vec3 uSky0, uSky1, uLa, uLb, uLc;
-// uPass 0：雾的预渲染；1：主画面；2：往楼群缓存里补画。uFogTex 为假时主画面自己算（不支持浮点渲染目标时）
+// uPass 0：雾的预渲染；1：主画面；2：往楼群缓存里补画；3：算静态噪声纹理。uFogTex 为假时主画面自己算（不支持浮点渲染目标时）
 uniform int uPass; uniform bool uFogTex; uniform sampler2D uFogBlur, uFogGlow; uniform float uFogB;
 // 聚光灯：光源（远处楼底）、照到玻璃上的点、光斑半径，都在 scene 坐标；uSpotI 强度
 uniform vec2 uSpotSrc, uSpotSrc2, uSpotTgt; uniform float uSpotR, uSpotI;
