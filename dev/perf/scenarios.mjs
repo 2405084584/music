@@ -32,6 +32,7 @@ const STYLES = [
     ['tempera', 'Tempera', 'Pixi'],
     ['lumiere', '绘光', 'Pixi'],
     ['hanabi', '花火', 'Pixi'],
+    ['nebbia', '雾笺', 'WebGL2 + 2D 画布'],
     ['cadenza', 'Mindscape', 'DOM + 2D 画布'],
     ['partita', '云阶', 'DOM'],
     ['fume', 'Fume', 'DOM + 2D 画布'],

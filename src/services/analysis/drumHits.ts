@@ -65,8 +65,8 @@ export const canRunDrumStem = (): boolean =>
     && typeof navigator !== 'undefined' && 'gpu' in navigator
     && modelCanRun('htdemucs_gpu');
 
-/** 44.1 kHz mono to the 22.05 kHz beat_this rate, by the browser's own resampler. */
-const resample = async (signal: Float32Array): Promise<Float32Array> => {
+/** 44.1 kHz mono to the 22.05 kHz beat_this rate, by the browser's own resampler; the vocal envelope's too (vocalStemRun.ts). */
+export const resampleStem = async (signal: Float32Array): Promise<Float32Array> => {
     const length = Math.ceil(signal.length * BEAT_THIS_SAMPLE_RATE / STEM_RATE);
     const context = new OfflineAudioContext(1, length, BEAT_THIS_SAMPLE_RATE);
     const source = context.createBufferSource();
@@ -237,7 +237,7 @@ const drumHitsTask = (key: string, resume: DrumResume | null): StemTask<DrumAnal
         }
         // Kept until this run stops again (and keeps its own) or finishes: a run that throws loses nothing.
         if (resume && !from) resumes.delete(key);
-        const stream = createDrumBandStream(total, { resample, mel: melSpectrogramOffThread, bands: drumBandTracks }, from ? { bands: from.bands, done: from.done } : undefined);
+        const stream = createDrumBandStream(total, { resample: resampleStem, mel: melSpectrogramOffThread, bands: drumBandTracks }, from ? { bands: from.bands, done: from.done } : undefined);
         // The hits of the head so far, for 时计 while the rest separates (see the header).
         const pickLive = async (drums: Float32Array, final: number) => {
             for (; measured < final; measured += 1) drumEnergy[Math.floor(measured / ENERGY_HOP)] += drums[measured] * drums[measured];
