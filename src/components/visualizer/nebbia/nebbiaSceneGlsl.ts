@@ -6,7 +6,9 @@ import { NEBBIA_SPOT_GLSL } from './nebbiaSpotGlsl';
 // 着色器从原型（feat/fog-write-prototype 分支 dev/prototypes/fog-write/index.html）原样搬来，没有改画面。
 export const NEBBIA_SCENE_GLSL = /* glsl */ `
 float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
-float h1(float n) { return fract(sin(n * 127.1 + 3.7) * 43758.5453); }
+// 格子编号 → 0..1 的伪随机数（Dave Hoskins 的 hash11）。原来用 fract(sin(n) × 43758)，sin 的精度各家驱动不一样、
+// 编号随行驶越来越大时平台间会对不上；纯算术的分布一样（均匀、相邻编号不相关），只是每格具体的值换了
+float h1(float n) { n = fract(n * 0.1031); n *= n + 33.33; n *= n + n; return fract(n); }
 float vnoise(vec2 p) {
   vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
