@@ -1,10 +1,12 @@
 import { FOG_DIV, NEBBIA_FIXED } from './nebbiaConstants';
 import raindropSpriteUrl from './nebbiaRaindrop.png';
 import { makeTex, type NebbiaUniforms, type Tex } from './nebbiaGlUtils';
+import { NebbiaMaskGl } from './nebbiaMaskGl';
 import { canRenderFogToFloat, NebbiaProgramBuild } from './nebbiaPrograms';
+import type { NebbiaSegments } from './nebbiaSegments';
 
 // src/components/visualizer/nebbia/nebbiaGl.ts
-// 雾笺的 WebGL2 部分：雾的预渲染和主画面两个全屏着色器，四张玻璃上的纹理（擦痕遮罩、擦痕边 / 雨点的水珠、雾上的凝结水珠、哈气的白气），
+// 雾笺的 WebGL2 部分：雾的预渲染和主画面两个全屏着色器，四张玻璃上的纹理（擦痕遮罩（nebbiaMaskGl.ts 每帧画）、擦痕边 / 雨点的水珠、雾上的凝结水珠、哈气的白气），
 // 两张雾的预渲染（RGBA16F，1/4 画布分辨率，各一个 FBO、一层画一次；不支持浮点渲染目标时主画面自己算）。
 // 着色器在后台编（nebbiaPrograms.ts）：`ready` 为真之前不画。
 // 水珠精灵是 raindrop-fx 1.0.8（MIT，见 nebbiaRaindrop.LICENSE.txt）的 assets/img/raindrop.png。
@@ -33,7 +35,7 @@ export class NebbiaGl {
     private uView: WebGLUniformLocation | null = null;
     private uFogB: WebGLUniformLocation | null = null;
     private linked = false;
-    private readonly mask: Tex; private readonly drop: Tex; private readonly field: Tex; private readonly sprite: Tex; private readonly breath: Tex;
+    private readonly mask: NebbiaMaskGl; private readonly drop: Tex; private readonly field: Tex; private readonly sprite: Tex; private readonly breath: Tex;
     private readonly fogTex: Tex[];
     private readonly fogOK: boolean;
     private readonly fogFbs: WebGLFramebuffer[] = [];
@@ -56,10 +58,10 @@ export class NebbiaGl {
         gl.bindVertexArray(this.quadVao);
         gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-        // 属性位置在 nebbiaPrograms.ts 里绑死：aPos 0；aCorner 0、aRect 1、aParam 2
+        // 属性位置在 nebbiaPrograms.ts 里绑死：aPos 0；aCorner 0、aRect 1、aParam 2；遮罩 aCorner 0、aSeg 1、aParam 2
         gl.enableVertexAttribArray(0);
         gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-        this.mask = makeTex(gl, 2);
+        this.mask = new NebbiaMaskGl(gl, 2);
         this.drop = makeTex(gl, 3);
         this.field = makeTex(gl, 4);
         this.sprite = makeTex(gl, 5);
@@ -90,10 +92,11 @@ export class NebbiaGl {
         if (this.linked) return true;
         if (!this.build.poll()) return false;
         const { gl } = this;
-        const { main, fog, sprite } = this.build.programs;
+        const { main, fog, sprite, mask } = this.build.programs;
+        this.mask.attach(mask);
         this.U = locate(gl, main, MAIN_UNIFORMS);
         gl.useProgram(main);
-        const samplers: [string, Tex][] = [['uMask', this.mask], ['uDrop', this.drop], ['uField', this.field], ['uFogBlur', this.fogTex[0]], ['uFogGlow', this.fogTex[1]], ['uBreath', this.breath]];
+        const samplers: [string, Tex][] = [['uMask', this.mask.tex], ['uDrop', this.drop], ['uField', this.field], ['uFogBlur', this.fogTex[0]], ['uFogGlow', this.fogTex[1]], ['uBreath', this.breath]];
         for (const [name, tex] of samplers) gl.uniform1i(gl.getUniformLocation(main, name), tex.unit);
         gl.uniform1f(this.U.uBreathThick, NEBBIA_FIXED.breathThick);
         if (fog) {
@@ -147,6 +150,7 @@ export class NebbiaGl {
         this.W = Math.max(1, Math.round(W)); this.H = Math.max(1, Math.round(H));
         this.canvas.width = Math.max(1, Math.round(W * dpr));
         this.canvas.height = Math.max(1, Math.round(H * dpr));
+        this.mask.resize(W, H);
         for (const tex of [this.drop, this.field]) {
             gl.activeTexture(gl.TEXTURE0 + tex.unit);
             gl.bindTexture(gl.TEXTURE_2D, tex.t);
@@ -205,15 +209,13 @@ export class NebbiaGl {
     }
 
     /**
-     * 画一帧（`ready` 为真之后才调）：遮罩画布上传（白气遮罩只在这一帧有哈气时传，`breath` 为 null 就不传），
+     * 画一帧（`ready` 为真之后才调）：擦痕遮罩，白气遮罩上传（只在这一帧有哈气时传，`breath` 为 null 就不传），
      * 两张水珠纹理，雾的预渲染，主画面。
      */
-    render(mask: HTMLCanvasElement, breath: HTMLCanvasElement | null, drops: number[], field: number[], u: NebbiaUniforms) {
+    render(mask: NebbiaSegments, breath: HTMLCanvasElement | null, drops: number[], field: number[], u: NebbiaUniforms) {
         const { gl, U } = this;
         const { main, fog } = this.build.programs;
-        gl.activeTexture(gl.TEXTURE0 + this.mask.unit);
-        gl.bindTexture(gl.TEXTURE_2D, this.mask.t);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, mask);
+        this.mask.draw(mask);
         if (breath) {
             gl.activeTexture(gl.TEXTURE0 + this.breath.unit);
             gl.bindTexture(gl.TEXTURE_2D, this.breath.t);
