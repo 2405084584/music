@@ -375,6 +375,7 @@ export default {
     "syncFailed": "同步失败",
     "loginExpired": "登录状态已失效，请重新登录",
     "songPreviewOnly": "当前账号仅可试听此歌曲",
+    "songVipFullUnavailable": "第三方播放器暂时无法获取完整VIP歌曲",
     "songSubscriptionRequired": "{{provider}}需要会员才能播放",
     "songRegionRestricted": "仅限中国大陆网络播放",
     "songRetrying": "连接失败，正在重试…",
