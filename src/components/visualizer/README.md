@@ -56,7 +56,7 @@ App / ThemePark / VisPlayground / OBS source
 
 ### 启动慢时
 
-要编很久的着色器之类：在 `entry.tsx` 写 `prewarm`，保存的样式是它时主窗口一启动就调（`prewarmSavedVisualizer.ts`），趁首屏加载遮罩还在先准备。它不能占主线程，代码用动态 import 拉（entry 在启动时全部加载），照 `nebbia/entry.tsx`。第一次挂上时的等待用 `styleTransition/firstFrame.ts` 的 `useFirstFrameDrawn()` 告诉换样式的过渡。
+要编很久的着色器之类：在 `entry.tsx` 写 `prewarm`，保存的样式是它时主窗口一启动就调（`prewarmVisualizers.ts`），趁首屏加载遮罩还在先准备。再写 `prewarmWhenIdle: true`，不是保存的样式时也在首屏出来、页面空闲后准备一次，第一次切过去就不用现等；这一项每次启动都要花一点，只给第一次切换会明显卡的样式。`prewarm` 不能长时间占主线程，代码用动态 import 拉（entry 在启动时全部加载），照 `nebbia/entry.tsx`。第一次挂上时的等待用 `styleTransition/firstFrame.ts` 的 `useFirstFrameDrawn()` 告诉换样式的过渡。
 
 ### 背景和默认的不一样时
 
@@ -238,7 +238,7 @@ Visualizer 消费已解析的 `LyricData` / `Line` / `Word`，不负责解析 `.
 
 - `nebbia/VisualizerNebbia.tsx`：React shell / subtitle；`createNebbiaRuntime.ts`：运行时（WebGL2，建一次，换歌、tuning、主题就地推进去；暂停时停循环、拖进度补一帧；静态模式照常写字，窗外匀速走，不颠簸、没有小雨点）；`nebbiaSceneClock.ts`：窗外时钟（float32 精度：走过 1000 秒后换歌时归零，一首连放满 3600 秒才硬回绕）；`nebbiaFrameUniforms.ts`：主着色器每帧的 uniform
 - `nebbiaGl.ts`（`nebbiaGlUtils.ts`：编译链接、建纹理）+ `nebbiaShaders.ts` + `nebbiaSceneGlsl.ts`：两个全屏着色器程序。窗外夜景（楼群、霓虹、路灯、倒影、车灯、雨）两层模糊版本先由雾的预渲染程序在 1/4 分辨率的 RGBA16F 上各画一次（没有 `EXT_color_buffer_float` 或那个 FBO 拼不完整时不编它，改编主画面自己算雾的那一版），主画面合成雾、擦痕、水珠折射；水珠是 raindrop-fx（MIT）的法线精灵，实例化画进两张水珠纹理。两个程序各只有一个输出：合成一个程序时 D3D11 上冷编要 6 秒多
-- `nebbiaPrograms.ts`：三个程序在后台编（`KHR_parallel_shader_compile`，每帧问一次，编好前不画）；`nebbiaShaderWarmup.ts`：保存的样式是雾笺时启动就按同样的编法先编一遍（`entry.tsx` 的 `prewarm`），GPU 进程的程序缓存命中，挂上时不再等冷编
+- `nebbiaPrograms.ts`：三个程序在后台编（`KHR_parallel_shader_compile`，每帧问一次，编好前不画）；`nebbiaShaderWarmup.ts`：按同样的编法先编一遍（`entry.tsx` 的 `prewarm`；保存的样式是雾笺时启动就编，否则首屏出来后空闲时编），GPU 进程的程序缓存命中，挂上时不再等冷编
 - `nebbiaChars.ts`：`Line` → 逐字 `{ ch, t, d }`（`buildLineGraphemeTimeline`），emoji 换成 lucide 图标，词分组走 `segmentLyricWords`（所以 `usesWordSegmentation`）；句尾随手画的图标取主题 `lyricsIcons`
 - `nebbiaBlocks.ts` + `nebbiaCompositions.ts` + `nebbiaLayout.ts`：照商籁的主词 / 副主词 / 虚词和横条、十字、竖柱、刊头等构图排整首，避开这句出现时还没消失的句子；用户字号是排版字号的倍数
 - `nebbiaScene.ts`：每个字的位置、手写变形、水珠，出现方式（快的句子慢慢显现），让位（后一句要写到这句位置时这句提前起雾）；`nebbiaWipe.ts`：手指抹掉

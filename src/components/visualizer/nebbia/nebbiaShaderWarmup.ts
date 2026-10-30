@@ -1,7 +1,7 @@
 import { canRenderFogToFloat, NebbiaProgramBuild } from './nebbiaPrograms';
 
 // src/components/visualizer/nebbia/nebbiaShaderWarmup.ts
-// 启动时预先编雾笺的着色器（entry.tsx 的 prewarm：保存的歌词样式是雾笺时，应用一启动就调）。在一个不上屏的
+// 启动时预先编雾笺的着色器（entry.tsx 的 prewarm：保存的歌词样式是雾笺时应用一启动就调，否则首屏出来后空闲时调）。在一个不上屏的
 // WebGL2 上下文里按运行时同样的编法编一遍，编好就丢掉上下文：GPU 进程留着编好的程序（内存里，也写进磁盘缓存），
 // 雾笺真正挂上时链接直接命中，不用再等将近 1 秒的冷编。编译在 GPU 进程的后台线程上跑，这里只每隔一会儿问一次，不占主线程。
 

@@ -72,7 +72,9 @@ export default defineVisualizer({
             ],
         },
     ],
-    // Saved as the style: its shaders compile in the background while the app starts (cold, about a second on D3D11).
+    // Its shaders compile in the background (cold, about a second on D3D11): at once when it is the saved
+    // style, otherwise once the app is idle, so the first switch to it finds them in the GPU cache.
+    prewarmWhenIdle: true,
     prewarm: () => {
         void import('./nebbiaShaderWarmup')
             .then(module => module.warmNebbiaShaders())
