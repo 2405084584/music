@@ -237,8 +237,9 @@ Visualizer 消费已解析的 `LyricData` / `Line` / `Word`，不负责解析 `.
 雾笺：下雨天公交车起雾的车窗上，手指一笔一笔写歌词，写过的地方透出窗外的雨夜街景，过一会儿重新起雾。原型在 `feat/fog-write-prototype` 分支的 `dev/prototypes/fog-write/`（独立 HTML，参数可调），这里是接入版。快速定位：
 
 - `nebbia/VisualizerNebbia.tsx`：React shell / subtitle；`createNebbiaRuntime.ts`：运行时（WebGL2，建一次，换歌、tuning、主题就地推进去；暂停时停循环、拖进度补一帧；静态模式照常写字，窗外匀速走，不颠簸、没有小雨点）；`nebbiaSceneClock.ts`：窗外时钟（float32 精度：走过 1000 秒后换歌时归零，一首连放满 3600 秒才硬回绕）；`nebbiaFrameUniforms.ts`：主着色器每帧的 uniform
-- `nebbiaGl.ts`（`nebbiaGlUtils.ts`：编译链接、建纹理）+ `nebbiaShaders.ts` + `nebbiaSceneGlsl.ts`：两个全屏着色器程序。窗外夜景（楼群、霓虹、路灯、倒影、车灯、雨）两层模糊版本先由雾的预渲染程序在 1/4 分辨率的 RGBA16F 上各画一次（没有 `EXT_color_buffer_float` 或那个 FBO 拼不完整时不编它，改编主画面自己算雾的那一版），主画面合成雾、擦痕、水珠折射；水珠是 raindrop-fx（MIT）的法线精灵，实例化画进两张水珠纹理。两个程序各只有一个输出：合成一个程序时 D3D11 上冷编要 6 秒多
-- `nebbiaPrograms.ts`：三个程序在后台编（`KHR_parallel_shader_compile`，每帧问一次，编好前不画）；`nebbiaShaderWarmup.ts`：按同样的编法先编一遍（`entry.tsx` 的 `prewarm`；保存的样式是雾笺时启动就编，否则首屏出来后空闲时编），GPU 进程的程序缓存命中，挂上时不再等冷编
+- `nebbiaGl.ts`（`nebbiaGlUtils.ts`：编译链接、建纹理）+ `nebbiaShaders.ts` + `nebbiaSceneGlsl.ts`：雾的预渲染和主画面两个全屏着色器程序。窗外夜景（楼群、霓虹、路灯、倒影、车灯、雨）两层模糊版本先由雾的预渲染程序在 1/4 分辨率的 RGBA16F 上各画一次（没有 `EXT_color_buffer_float` 或那个 FBO 拼不完整时不编它，改编主画面自己算雾的那一版），主画面合成雾、擦痕、水珠折射；水珠是 raindrop-fx（MIT）的法线精灵，实例化画进两张水珠纹理。两个程序各只有一个输出：合成一个程序时 D3D11 上冷编要 6 秒多
+- `nebbiaBuildingCache.ts`：窗外楼群的缓存（远近两层 × 三档模糊各一张横向环形纹理，采样单元 9–14），车往前开时每帧只用补画程序补新露出来的几列；开始、改尺寸、换配色、车速突变时整张重画（一帧一档），没画好的那档和水珠透镜照旧现算
+- `nebbiaPrograms.ts`：五个程序（雾的预渲染、主画面、水珠精灵、擦痕遮罩、楼群缓存的补画）在后台编（`KHR_parallel_shader_compile`，每帧问一次，编好前不画）；`nebbiaShaderWarmup.ts`：按同样的编法先编一遍（`entry.tsx` 的 `prewarm`；保存的样式是雾笺时启动就编，否则首屏出来后空闲时编），GPU 进程的程序缓存命中，挂上时不再等冷编
 - `nebbiaChars.ts`：`Line` → 逐字 `{ ch, t, d }`（`buildLineGraphemeTimeline`），emoji 换成 lucide 图标，词分组走 `segmentLyricWords`（所以 `usesWordSegmentation`）；句尾随手画的图标取主题 `lyricsIcons`
 - `nebbiaBlocks.ts` + `nebbiaCompositions.ts` + `nebbiaLayout.ts`：照商籁的主词 / 副主词 / 虚词和横条、十字、竖柱、刊头等构图排整首，避开这句出现时还没消失的句子；用户字号是排版字号的倍数
 - `nebbiaScene.ts`：每个字的位置、手写变形、水珠，出现方式（快的句子慢慢显现），让位（后一句要写到这句位置时这句提前起雾）；`nebbiaWipe.ts`：手指抹掉

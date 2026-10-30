@@ -4,7 +4,7 @@ import { ringColumns } from '@/components/visualizer/nebbia/nebbiaBuildingCache'
 // test/unit/visualizer/nebbiaBuildingCache.test.ts
 // 楼群缓存的环形列：一段世界横坐标落在缓存的哪几列，着色器按 x0 把每列换回的世界坐标正好落在这一段里。
 
-/** 着色器 uPass 2 的换算：第 i 列中心的世界横坐标。 */
+/** 补画程序（NEBBIA_BLD_FILL_FS）的换算：第 i 列中心的世界横坐标。 */
 const worldOf = (i: number, x0: number, span: number, w: number) => {
     const v = ((i + 0.5) / w * span - x0) / span;
     return x0 + (v - Math.floor(v)) * span;
