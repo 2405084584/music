@@ -1,4 +1,5 @@
 import { FOG_DIV, NEBBIA_FIXED } from './nebbiaConstants';
+import { NebbiaFogGl } from './nebbiaFogGl';
 import raindropSpriteUrl from './nebbiaRaindrop.png';
 import { NEBBIA_FS, NEBBIA_SPRITE_FS, NEBBIA_SPRITE_VS, NEBBIA_VS } from './nebbiaShaders';
 import { link, makeTex, type NebbiaUniforms, type Tex } from './nebbiaGlUtils';
@@ -6,7 +7,7 @@ import { NebbiaBuildingCache } from './nebbiaBuildingCache';
 
 // src/components/visualizer/nebbia/nebbiaGl.ts
 // 雾笺的 WebGL2 部分：一个全屏着色器，四张玻璃上的纹理（擦痕遮罩、擦痕边 / 雨点的水珠、雾上的凝结水珠、哈气的白气），
-// 两张雾的预渲染（RGBA16F，1/4 画布分辨率，一个 FBO 两个颜色附件一次画完；不支持浮点渲染目标时主画面自己算），楼群缓存（nebbiaBuildingCache.ts）。
+// 雾的预渲染（nebbiaFogGl.ts），楼群缓存（nebbiaBuildingCache.ts）。
 // 水珠精灵是 raindrop-fx 1.0.8（MIT，见 nebbiaRaindrop.LICENSE.txt）的 assets/img/raindrop.png。
 
 export class NebbiaGl {
@@ -19,11 +20,8 @@ export class NebbiaGl {
     private readonly U: Record<string, WebGLUniformLocation | null> = {};
     private readonly uView: WebGLUniformLocation | null;
     private readonly mask: Tex; private readonly drop: Tex; private readonly field: Tex; private readonly sprite: Tex; private readonly breath: Tex;
-    private readonly fogTex: Tex[];
+    private readonly fog: NebbiaFogGl;
     private readonly bld: NebbiaBuildingCache;
-    private fogOK: boolean;
-    private fogFb: WebGLFramebuffer | null = null;
-    private fogW = 1; private fogH = 1;
     private W = 1; private H = 1;
     private spriteReady = false;
     private instData = new Float32Array(0);
@@ -37,7 +35,7 @@ export class NebbiaGl {
         this.prog = link(gl, NEBBIA_VS, NEBBIA_FS);
         this.sprog = link(gl, NEBBIA_SPRITE_VS, NEBBIA_SPRITE_FS);
         gl.useProgram(this.prog);
-        for (const n of ['uRes', 'uTime', 'uMist', 'uEdge', 'uRefract', 'uBus', 'uGlint', 'uNeon', 'uGlassShift', 'uSceneShift', 'uSky0', 'uSky1', 'uLa', 'uLb', 'uLc', 'uPass', 'uFogTex', 'uSpotSrc', 'uSpotSrc2', 'uSpotTgt', 'uSpotR', 'uSpotI', 'uBreathOn', 'uBreathThick', 'uBldOn', 'uBldGeo', 'uFillB', 'uFillLayer', 'uFillX0', 'uFillGeo', 'uFillSize']) {
+        for (const n of ['uRes', 'uTime', 'uMist', 'uEdge', 'uRefract', 'uBus', 'uGlint', 'uNeon', 'uGlassShift', 'uSceneShift', 'uSky0', 'uSky1', 'uLa', 'uLb', 'uLc', 'uPass', 'uFogTex', 'uSpotSrc', 'uSpotSrc2', 'uSpotTgt', 'uSpotR', 'uSpotI', 'uBreathOn', 'uFogB', 'uBreathThick', 'uBldOn', 'uBldGeo', 'uFillB', 'uFillLayer', 'uFillX0', 'uFillGeo', 'uFillSize']) {
             this.U[n] = gl.getUniformLocation(this.prog, n);
         }
         this.quadVao = gl.createVertexArray()!;
@@ -51,12 +49,10 @@ export class NebbiaGl {
         this.drop = makeTex(gl, this.prog, 3, 'uDrop');
         this.field = makeTex(gl, this.prog, 4, 'uField');
         this.sprite = makeTex(gl, this.prog, 5, null);
-        this.fogTex = [makeTex(gl, this.prog, 6, 'uFogBlur'), makeTex(gl, this.prog, 7, 'uFogGlow')];
+        this.fog = new NebbiaFogGl(gl, this.prog, 6, this.U);
         this.breath = makeTex(gl, this.prog, 8, 'uBreath');
         this.bld = new NebbiaBuildingCache(gl, this.prog, 9, this.U);
         gl.uniform1f(this.U.uBreathThick, NEBBIA_FIXED.breathThick);
-        this.fogOK = !!gl.getExtension('EXT_color_buffer_float');
-        gl.uniform1i(this.U.uFogTex, this.fogOK ? 1 : 0);
         gl.uniform1i(this.U.uPass, 1);
 
         this.spriteVao = gl.createVertexArray()!;
@@ -122,28 +118,7 @@ export class NebbiaGl {
             gl.bindFramebuffer(gl.FRAMEBUFFER, tex.fb);
             gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex.t, 0);
         }
-        if (this.fogOK) {
-            this.fogW = Math.max(1, Math.ceil(this.canvas.width / FOG_DIV));
-            this.fogH = Math.max(1, Math.ceil(this.canvas.height / FOG_DIV));
-            if (!this.fogFb) this.fogFb = gl.createFramebuffer()!;
-            gl.bindFramebuffer(gl.FRAMEBUFFER, this.fogFb);
-            this.fogTex.forEach((tex, i) => {
-                gl.activeTexture(gl.TEXTURE0 + tex.unit);
-                gl.bindTexture(gl.TEXTURE_2D, tex.t);
-                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, this.fogW, this.fogH, 0, gl.RGBA, gl.HALF_FLOAT, null);
-                gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, tex.t, 0);
-            });
-            gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
-            // 有的驱动报了 EXT_color_buffer_float 却拼不成两张 RGBA16F 的 MRT：退回主画面自己算雾
-            if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
-                console.warn('[Nebbia] fog prepass framebuffer incomplete, computing the fog in the main pass');
-                this.fogOK = false;
-                gl.deleteFramebuffer(this.fogFb);
-                this.fogFb = null;
-                gl.useProgram(this.prog);
-                gl.uniform1i(this.U.uFogTex, 0);
-            }
-        }
+        this.fog.resize(this.canvas.width, this.canvas.height);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         this.bld.resize(this.canvas.width, this.canvas.height, Math.max(1, Math.ceil(this.canvas.height / FOG_DIV)));
     }
@@ -195,17 +170,7 @@ export class NebbiaGl {
         gl.uniform1f(U.uSpotR, u.spotR); gl.uniform1f(U.uSpotI, u.spotI);
         gl.uniform1i(U.uBreathOn, breath ? 1 : 0);
         this.bld.update(u.time * u.bus);
-        if (this.fogOK && this.fogFb) {
-            // 画之前把两张纹理从采样单元上卸下：同一个程序既采样又往里画会被判成反馈环
-            for (const tex of this.fogTex) { gl.activeTexture(gl.TEXTURE0 + tex.unit); gl.bindTexture(gl.TEXTURE_2D, null); }
-            gl.bindFramebuffer(gl.FRAMEBUFFER, this.fogFb);
-            gl.viewport(0, 0, this.fogW, this.fogH);
-            gl.uniform1i(U.uPass, 0);
-            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-            gl.uniform1i(U.uPass, 1);
-            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-            for (const tex of this.fogTex) { gl.activeTexture(gl.TEXTURE0 + tex.unit); gl.bindTexture(gl.TEXTURE_2D, tex.t); }
-        }
+        this.fog.draw();
         gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         gl.bindVertexArray(null);
