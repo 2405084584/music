@@ -1,13 +1,14 @@
 import { MASK_SCALE } from './nebbiaConstants';
-import { link, makeTex, type Tex } from './nebbiaGlUtils';
+import { makeTex, type Tex } from './nebbiaGlUtils';
 import { SEGMENT_FLOATS, type NebbiaSegments } from './nebbiaSegments';
 
 // src/components/visualizer/nebbia/nebbiaMaskGl.ts
 // 擦痕遮罩在 GPU 上画：nebbiaSegments.ts 收好的线段一次实例化画进一张 R8 纹理（半分辨率，亮 = 擦开），
 // 混合取最大值，代替原来 2D 画布上每段三次 stroke 加 lighten（Windows 的 D3D11 上每次都要拷一份目标像素，很贵）
 // 和每帧把画布上传成纹理。一段的三层由宽到窄、由暗到亮（原 strokePath 的 [1.3, 0.38] [1.0, 0.72] [0.62, 1]）在片元里一起算。
+// 程序和别的雾笺程序一起在后台编（nebbiaPrograms.ts，属性位置 aCorner 0、aSeg 1、aParam 2），编好后 attach 进来。
 
-const MASK_VS = /* glsl */ `#version 300 es
+export const NEBBIA_MASK_VS = /* glsl */ `#version 300 es
 in vec2 aCorner; in vec4 aSeg; in vec2 aParam;
 uniform vec2 uView;
 out vec2 vP; flat out vec4 vSeg; flat out vec2 vParam;
@@ -22,7 +23,7 @@ void main() {
   gl_Position = vec4(p / uView * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
-const MASK_FS = /* glsl */ `#version 300 es
+export const NEBBIA_MASK_FS = /* glsl */ `#version 300 es
 precision highp float;
 in vec2 vP; flat in vec4 vSeg; flat in vec2 vParam;
 out vec4 o;
@@ -44,33 +45,35 @@ void main() {
 export class NebbiaMaskGl {
     /** 主程序 uMask 采样的那张纹理。 */
     readonly tex: Tex;
-    private readonly prog: WebGLProgram;
+    private prog: WebGLProgram | null = null;
     private readonly vao: WebGLVertexArrayObject;
     private readonly buf: WebGLBuffer;
-    private readonly uView: WebGLUniformLocation | null;
+    private uView: WebGLUniformLocation | null = null;
     private readonly fb: WebGLFramebuffer;
     private w = 1; private h = 1;
 
-    /** `mainProg` 要是当前程序（绑 uMask 的采样单元）。 */
-    constructor(private readonly gl: WebGL2RenderingContext, mainProg: WebGLProgram, unit: number) {
-        this.tex = makeTex(gl, mainProg, unit, 'uMask');
-        this.prog = link(gl, MASK_VS, MASK_FS);
-        this.uView = gl.getUniformLocation(this.prog, 'uView');
+    /** 纹理挂在采样单元 `unit` 上（主程序的 uMask 由 nebbiaGl.ts 编好后指过来）。 */
+    constructor(private readonly gl: WebGL2RenderingContext, unit: number) {
+        this.tex = makeTex(gl, unit);
         this.fb = gl.createFramebuffer()!;
         this.vao = gl.createVertexArray()!;
         gl.bindVertexArray(this.vao);
         gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-        const aCorner = gl.getAttribLocation(this.prog, 'aCorner');
-        gl.enableVertexAttribArray(aCorner);
-        gl.vertexAttribPointer(aCorner, 2, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
         this.buf = gl.createBuffer()!;
         gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
         const stride = SEGMENT_FLOATS * 4;
-        const aSeg = gl.getAttribLocation(this.prog, 'aSeg'), aParam = gl.getAttribLocation(this.prog, 'aParam');
-        gl.enableVertexAttribArray(aSeg); gl.vertexAttribPointer(aSeg, 4, gl.FLOAT, false, stride, 0); gl.vertexAttribDivisor(aSeg, 1);
-        gl.enableVertexAttribArray(aParam); gl.vertexAttribPointer(aParam, 2, gl.FLOAT, false, stride, 16); gl.vertexAttribDivisor(aParam, 1);
+        gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, stride, 0); gl.vertexAttribDivisor(1, 1);
+        gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, stride, 16); gl.vertexAttribDivisor(2, 1);
         gl.bindVertexArray(null);
+    }
+
+    /** 编好的遮罩程序（nebbiaPrograms.ts 的 `mask`）。 */
+    attach(prog: WebGLProgram) {
+        this.prog = prog;
+        this.uView = this.gl.getUniformLocation(prog, 'uView');
     }
 
     /** W、H 是 CSS 像素，遮罩按 MASK_SCALE 缩（和原来的遮罩画布一样大）。 */
@@ -93,7 +96,7 @@ export class NebbiaMaskGl {
         gl.viewport(0, 0, this.w, this.h);
         gl.clearColor(0, 0, 0, 0);
         gl.clear(gl.COLOR_BUFFER_BIT);
-        if (segs.count) {
+        if (segs.count && this.prog) {
             gl.useProgram(this.prog);
             gl.bindVertexArray(this.vao);
             gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
