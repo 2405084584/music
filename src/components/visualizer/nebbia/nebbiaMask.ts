@@ -116,7 +116,8 @@ export class NebbiaMask {
             const tr = trails[i];
             const v = tr.end === null ? 1 : 1 - smooth(clamp((now - tr.end - tuning.hold) / tuning.refog));
             if (v <= 0.002) { trails.splice(i, 1); continue; }
-            if (tr.y1 - tr.y0 < 2) continue;
+            // 太短的、整条在屏幕下面的不画（照样按时间回雾、丢掉）
+            if (tr.y1 - tr.y0 < 2 || tr.y0 > this.canvas.height / MASK_SCALE) continue;
             ctx.setTransform(MASK_SCALE, 0, 0, MASK_SCALE, 0, 0);
             const wob = (y: number) => Math.sin(y * 0.07 + tr.seed) * 1.4 + Math.sin(y * 0.021 + tr.seed * 2) * 2.2 + windDrift(y - tr.y0, tuning.busSpeed);
             strokeTrail(ctx, tr.x, tr.y0, tr.y1, tr.w * 0.18, v * 0.95, tr.seed, wob);

@@ -10,6 +10,8 @@ import { createVisualizerRng } from '../visualizerSeedHash';
 
 interface FieldDrop {
     x: number; y: number; w: number; h: number; phase: number;
+    /** 最初凝结的位置：掉出屏幕的水珠在这里重新凝出来。 */
+    hx: number; hy: number;
     fall: null | { t0: number; y0: number; len: number; dur: number; trail: Trail };
     smear: Smear | null;
 }
@@ -33,6 +35,9 @@ export class NebbiaGlassMotion {
     private nextBump = 0;
     private rng = createVisualizerRng(777);
     private now = 0;
+    private H = 0;
+    /** 上一次颠的时刻：颠得密（跟底鼓）时每一下震落的概率按间隔打折，不然几分钟里大水珠全掉光。 */
+    private lastTrigger = -Infinity;
     private readonly spring = new NebbiaDropSpring();
     bump = 1;
 
@@ -44,10 +49,12 @@ export class NebbiaGlassMotion {
             const big = rnd() < 0.12;
             const w = big ? 40 + rnd() * 34 : 14 + rnd() ** 1.4 * 22;
             const sp = rnd() * 0.25;
-            this.fieldDrops.push({ x: rnd() * W, y: H * (1 - rnd() ** 1.25), w: w * (1 + sp * 0.5), h: w * (1 + sp), phase: rnd() * 6.28, fall: null, smear: null });
+            const x = rnd() * W, y = H * (1 - rnd() ** 1.25);
+            this.fieldDrops.push({ x, y, hx: x, hy: y, w: w * (1 + sp * 0.5), h: w * (1 + sp), phase: rnd() * 6.28, fall: null, smear: null });
         }
         this.trails.length = 0;
         this.smears.length = 0;
+        this.H = H;
     }
 
     /** 每帧开头：清空实例，按时间偶尔颠一下（`randomBumps` 为 false 时颠簸跟鼓点，由外面 trigger）。paused 时不颠。 */
@@ -66,9 +73,15 @@ export class NebbiaGlassMotion {
     trigger(now: number, a: number) {
         this.bumps.push({ t: now, a });
         while (this.bumps.length && now - this.bumps[0].t > 3) this.bumps.shift();
+        // 随机颠簸平均 7.5 秒一下，按这个间隔算满；底鼓 0.5 秒一下就只有 1/15
+        const fallShare = clamp((now - this.lastTrigger) / 7.5);
+        this.lastTrigger = now;
         for (const d of this.fieldDrops) {
             if (d.fall || d.w < 26) continue;
-            if (this.rng() < NEBBIA_FIXED.bumpFall * a * (d.w - 24) / 45) {
+            if (this.rng() < NEBBIA_FIXED.bumpFall * a * fallShare * (d.w - 24) / 45) {
+                // 掉下去的水珠不再接着它原来位置上的甩痕
+                if (d.smear && d.smear.end === null) d.smear.end = now;
+                d.smear = null;
                 const trail: Trail = { x: d.x, y0: d.y - d.h * 0.05, y1: d.y, w: d.w, end: null, seed: this.rng() * 100 };
                 d.fall = { t0: now + this.rng() * 0.12, y0: d.y, len: (30 + this.rng() * 150) * d.w / 50, dur: 1 + this.rng() * 2.2, trail };
                 this.trails.push(trail);
@@ -123,7 +136,12 @@ export class NebbiaGlassMotion {
                 x = tr.x + Math.sin(y * 0.07 + tr.seed) * 1.4 + Math.sin(y * 0.021 + tr.seed * 2) * 2.2 + windDrift(y - tr.y0, busSpeed);
                 stretch = 0.4 * (1 - Math.cos(u * 6 * Math.PI)) * (u < 1 ? 1 : 0);
                 tr.y1 = y;
-                if (u >= 1) { d.x = x; d.y = y; tr.end = this.now; d.fall = null; }
+                if (u >= 1) {
+                    tr.end = this.now;
+                    d.fall = null;
+                    // 掉出屏幕的在原处重新凝出来，否则留在落点
+                    if (y - d.h / 8 > this.H) { d.x = d.hx; d.y = d.hy; } else { d.x = x; d.y = y; }
+                }
             }
             const [dx, dy, st] = this.spring.offset(d.w / 8);
             if (!d.fall) this.trackSmear(d, dx, dy);
