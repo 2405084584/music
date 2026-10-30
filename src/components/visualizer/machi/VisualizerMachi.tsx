@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Line, Theme } from '../../../types';
 import { loadLucideIcons } from '../../../services/lucideIconResolver';
+import { useAppViewStore } from '../../../stores/useAppViewStore';
 import { resolveThemeFontStack, resolveThemeFontWeight } from '../../../utils/fontStacks';
 import { getLineRenderEndTime } from '../../../utils/lyrics/renderHints';
 import type { VisualizerSharedProps } from '../definition';
@@ -11,14 +12,18 @@ import { useVisualizerSongCommit } from '../songHandover';
 import { resolveSubtitleFontSizes } from '../subtitleFontSizes';
 import VisualizerShell from '../VisualizerShell';
 import VisualizerSubtitleOverlay from '../VisualizerSubtitleOverlay';
+import { closeMachiCameraBar, isMachiCameraBarOpen, subscribeMachiCameraBar } from './cameraBar';
 import type { MachiRuntime, MachiSongContext } from './createMachiRuntime';
-import type { MachiTuning } from './types';
+import MachiCameraBar from './MachiCameraBar';
+import type { MachiSceneId, MachiTuning } from './types';
 
 // src/components/visualizer/machi/VisualizerMachi.tsx
 // 町景的 React 外壳：挂共享 shell 与底部字幕层，把按需加载的 three.js 运行时建一次（useVisualizerPixiHost 托管，
 // 它与渲染器无关），换歌、换主题、换设置（场景、时间、天气）、暂停、静态模式都就地推给运行时。
 // WebGL 上下文丢了就换一个 epoch 重建。
 // 每帧的时间只在运行时的循环里读 currentTime，不进 React state。
+// 播放页上（不是预览、宿主存得下改动）控制面板的摄影机按钮打开取景控制条（MachiCameraBar）：开着时底部字幕让开；
+// 拖它的滑块时改动先记在这里的草稿上、只推给运行时，松手或收起时再一次存下。
 
 const EMPTY_LINES: Line[] = [];
 
@@ -64,10 +69,32 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
     const hostRef = useRef<HTMLDivElement>(null);
     const [runtimeFailed, setRuntimeFailed] = useState(false);
     const [contextEpoch, setContextEpoch] = useState(0);
+    // 取景控制条：只在播放页上（预览不接拖拽，也没有地方存改动；画面在主页后面当背景时也不出）。
+    const onPlayerPage = useAppViewStore(state => state.view === 'player');
+    const cameraBarAvailable = onPlayerPage && !isPreviewMode && Boolean(onVisualizerTuningChange);
+    const cameraBarOpen = useSyncExternalStore(subscribeMachiCameraBar, isMachiCameraBarOpen, isMachiCameraBarOpen) && cameraBarAvailable;
+    const [shownScene, setShownScene] = useState<MachiSceneId | null>(null);
+    // 取景控制条拖动中的改动（还没存）：画面用存下的 tuning 叠上它。
+    const barDraftRef = useRef<Partial<MachiTuning> | null>(null);
+    const [barDraft, setBarDraft] = useState<Partial<MachiTuning> | null>(null);
+    const shownTuning = useMemo(() => (barDraft ? { ...machiTuning, ...barDraft } : machiTuning), [machiTuning, barDraft]);
 
     // 运行时创建期间这些输入可能已经变了；create 完成后按最新值补一次。
-    const latestRef = useRef({ theme, paused, showText, staticMode, machiTuning, onVisualizerTuningChange });
-    latestRef.current = { theme, paused, showText, staticMode, machiTuning, onVisualizerTuningChange };
+    const latestRef = useRef({ theme, paused, showText, staticMode, machiTuning, shownTuning, onVisualizerTuningChange });
+    latestRef.current = { theme, paused, showText, staticMode, machiTuning, shownTuning, onVisualizerTuningChange };
+
+    const previewFromBar = useCallback((patch: Partial<MachiTuning>) => {
+        barDraftRef.current = { ...barDraftRef.current, ...patch };
+        setBarDraft(barDraftRef.current);
+    }, []);
+    // 把草稿（连同这一下的改动）存下；没有要存的就什么也不做。
+    const commitFromBar = useCallback((patch?: Partial<MachiTuning>) => {
+        const draft = { ...barDraftRef.current, ...patch };
+        barDraftRef.current = null;
+        setBarDraft(null);
+        if (Object.keys(draft).length > 0) latestRef.current.onVisualizerTuningChange?.(draft);
+    }, []);
+    const flushBar = useCallback(() => commitFromBar(), [commitFromBar]);
 
     // 真正在画的歌：切歌时滞后于 props，免得对着还没到的歌词换牌面（songHandover.ts）。
     const committedSong = useVisualizerSongCommit({ seed, lines, currentTime, readyGraceMs: 3000 });
@@ -105,7 +132,7 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
                 host,
                 song,
                 theme: latest.theme,
-                tuning: latest.machiTuning,
+                tuning: latest.shownTuning,
                 currentTime,
                 audioPower,
                 audioBands,
@@ -118,13 +145,14 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
                     const latest = latestRef.current;
                     latest.onVisualizerTuningChange?.({ camera: 'custom', views: { ...latest.machiTuning.views, [scene]: view } } satisfies Partial<MachiTuning>);
                 },
+                onSceneShown: setShownScene,
                 fallbackIcons: MACHI_FALLBACK_ICONS,
                 onContextLost: () => setContextEpoch(epoch => epoch + 1),
                 signal,
             });
             const current = latestRef.current;
             runtime.setTheme(current.theme);
-            runtime.setTuning(current.machiTuning);
+            runtime.setTuning(current.shownTuning);
             runtime.setShowText(current.showText);
             runtime.setStaticMode(current.staticMode);
             runtime.setPaused(current.paused);
@@ -147,8 +175,8 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
     }, [theme, runtimeRef]);
 
     useEffect(() => {
-        runtimeRef.current?.setTuning(machiTuning);
-    }, [machiTuning, runtimeRef]);
+        runtimeRef.current?.setTuning(shownTuning);
+    }, [shownTuning, runtimeRef]);
 
     useEffect(() => {
         runtimeRef.current?.setShowText(showText);
@@ -161,6 +189,17 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
     useEffect(() => {
         runtimeRef.current?.setPaused(paused);
     }, [paused, runtimeRef]);
+
+    // 离开播放页、播放页的町景画面拆掉（换了别的歌词样式）时收起取景控制条。
+    useEffect(() => {
+        if (!cameraBarAvailable) return undefined;
+        return () => closeMachiCameraBar();
+    }, [cameraBarAvailable]);
+
+    // 取景控制条收起（不论从哪收起）时，还没存的拖动改动存下。
+    useEffect(() => {
+        if (!cameraBarOpen) commitFromBar();
+    }, [cameraBarOpen, commitFromBar]);
 
     // 暂停时循环停着，拖动进度要手动补一帧。
     useEffect(() => currentTime.on('change', () => {
@@ -201,8 +240,22 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
                 )}
             </div>
 
+            {cameraBarOpen && shownScene && onVisualizerTuningChange && (
+                <MachiCameraBar
+                    tuning={shownTuning}
+                    scene={shownScene}
+                    theme={theme}
+                    t={t}
+                    isPlayerChromeHidden={isPlayerChromeHidden}
+                    onPreview={previewFromBar}
+                    onCommit={flushBar}
+                    onTuningChange={commitFromBar}
+                    onClose={closeMachiCameraBar}
+                />
+            )}
+
             <VisualizerSubtitleOverlay
-                showText={showText}
+                showText={showText && !cameraBarOpen}
                 activeLine={activeLine}
                 recentCompletedLine={recentCompletedLine}
                 nextLines={nextLines}

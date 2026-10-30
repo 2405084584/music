@@ -2,6 +2,16 @@ import React from 'react';
 import { Button, Group, PictureGrid, Row, Segmented, type SettingsGroupDef } from '../../modal/settings/kit';
 import type { VisualizerSettingsPanelProps } from '../definition';
 import { percent, SliderRow, times, ToggleRow } from '../panelRows';
+import {
+    apertureReadout,
+    MACHI_APERTURE_TRACK_MAX,
+    MACHI_CAMERA_LABEL_KEYS,
+    MACHI_FOCUS_LABEL_KEYS,
+    MACHI_VIEW_SLIDERS,
+    machiApertureFromTrack,
+    machiApertureToTrack,
+    signedReadout,
+} from './cameraControls';
 import { resolveMachiQualityPreset } from './machiTuning';
 import { getMachiShownScene, subscribeMachiShownScene } from './shownScene';
 import {
@@ -12,6 +22,7 @@ import {
     MACHI_DETAIL_LEVELS,
     MACHI_DOF_LIMITS,
     MACHI_FOCUS_MODES,
+    MACHI_MOTION_SPEED_LIMITS,
     MACHI_QUALITY_PRESET_IDS,
     MACHI_QUALITY_PRESETS,
     MACHI_RENDER_SCALES,
@@ -34,8 +45,8 @@ import {
 
 // src/components/visualizer/machi/MachiSettingsPanel.tsx
 // 町景的设置面板：场景（线稿小图，不放实时预览）、时间、天气三项，每项都有“自动”；镜头（默认视角，或自定义视角
-// 与它的五个滑块，每个场景各一份：场景“自动”时多一排选调哪个场景的，默认是正在画的那个；运镜开关）；景深（强度、清晰范围、移轴、对焦在哪）；画质（高 / 平衡 / 低三套预设和各个细项，细项和哪套都对不上
-// 就多出一个选中的“自定义”，预设不单独存）。快捷控件里的胶囊用同一套文案。
+// 与它的五个滑块，每个场景各一份：场景“自动”时多一排选调哪个场景的，默认是正在画的那个；运镜开关与快慢）；景深（光圈、强度、清晰范围、移轴、对焦在哪）；画质（高 / 平衡 / 低三套预设和各个细项，细项和哪套都对不上
+// 就多出一个选中的“自定义”，预设不单独存）。快捷控件里的胶囊和播放页的取景控制条用同一套文案（cameraControls.ts）。
 
 const SCENE_GROUP: SettingsGroupDef = { id: 'vis-machi-scene', titleKey: 'options.machiSceneSection' };
 const SKY_GROUP: SettingsGroupDef = { id: 'vis-machi-sky', titleKey: 'options.machiSkySection' };
@@ -77,33 +88,6 @@ export const MACHI_TIME_LABEL_KEYS: Record<MachiTimeOfDay, string> = {
     dusk: 'options.machiTimeDusk',
     night: 'options.machiTimeNight',
 };
-
-export const MACHI_CAMERA_LABEL_KEYS: Record<MachiCameraMode, string> = {
-    default: 'options.machiCameraDefault',
-    custom: 'options.machiCameraCustom',
-};
-
-const MACHI_FOCUS_LABEL_KEYS: Record<MachiFocusMode, string> = {
-    center: 'options.machiFocusCenter',
-    lyrics: 'options.machiFocusLyrics',
-    manual: 'options.machiFocusManual',
-};
-
-/** 带正负号的读数：+12°、−0.5 m。 */
-const signed = (unit: string, digits = 0) => (value: number) => {
-    const text = Math.abs(value).toFixed(digits);
-    const sign = Number(text) === 0 ? '' : value > 0 ? '+' : '−';
-    return `${sign}${text}${unit}`;
-};
-
-/** 自定义视角的五个滑块：转角、俯仰（度）、远近（倍数）、左右与前后平移（米）。 */
-const VIEW_SLIDERS: { key: keyof MachiCameraView; labelKey: string; step: number; format: (value: number) => string }[] = [
-    { key: 'azimuth', labelKey: 'options.machiViewAzimuth', step: 1, format: signed('°') },
-    { key: 'elevation', labelKey: 'options.machiViewElevation', step: 1, format: signed('°') },
-    { key: 'zoom', labelKey: 'options.machiViewZoom', step: 0.05, format: times },
-    { key: 'panX', labelKey: 'options.machiViewPanX', step: 0.1, format: signed(' m', 1) },
-    { key: 'panZ', labelKey: 'options.machiViewPanZ', step: 0.1, format: signed(' m', 1) },
-];
 
 export const MACHI_WEATHER_LABEL_KEYS: Record<MachiWeather, string> = {
     auto: 'options.machiWeatherAuto',
@@ -241,7 +225,7 @@ const MachiSettingsPanel: React.FC<VisualizerSettingsPanelProps<MachiTuning>> = 
                         />
                     </Row>
                 )}
-                {custom && VIEW_SLIDERS.map(slider => (
+                {custom && MACHI_VIEW_SLIDERS.map(slider => (
                     <SliderRow
                         key={slider.key}
                         label={t(slider.labelKey)}
@@ -261,9 +245,35 @@ const MachiSettingsPanel: React.FC<VisualizerSettingsPanelProps<MachiTuning>> = 
                     checked={tuning.motion}
                     onChange={motion => onTuningChange?.({ motion })}
                 />
+                <SliderRow
+                    label={t('options.machiCameraMotionSpeed')}
+                    value={tuning.motionSpeed}
+                    min={MACHI_MOTION_SPEED_LIMITS.min}
+                    max={MACHI_MOTION_SPEED_LIMITS.max}
+                    step={0.05}
+                    format={times}
+                    disabled={!tuning.motion}
+                    onChange={motionSpeed => onTuningChange?.({ motionSpeed })}
+                    onDragStart={onSliderPointerDown}
+                    onDragEnd={onSliderCommit}
+                />
             </Group>
 
             <Group def={DOF_GROUP}>
+                {/* 光圈按档走（往右光圈越大），存的是 f 值。 */}
+                <SliderRow
+                    label={t('options.machiAperture')}
+                    note={t('options.machiApertureHint')}
+                    value={machiApertureToTrack(tuning.aperture)}
+                    min={0}
+                    max={MACHI_APERTURE_TRACK_MAX}
+                    step={1}
+                    format={index => apertureReadout(machiApertureFromTrack(index))}
+                    disabled={tuning.dof === 0}
+                    onChange={index => onTuningChange?.({ aperture: machiApertureFromTrack(index) })}
+                    onDragStart={onSliderPointerDown}
+                    onDragEnd={onSliderCommit}
+                />
                 <SliderRow
                     label={t('options.machiDof')}
                     note={t('options.machiDofHint')}
@@ -314,7 +324,7 @@ const MachiSettingsPanel: React.FC<VisualizerSettingsPanelProps<MachiTuning>> = 
                         min={MACHI_DOF_LIMITS.focusOffset.min}
                         max={MACHI_DOF_LIMITS.focusOffset.max}
                         step={0.1}
-                        format={signed(' m', 1)}
+                        format={signedReadout(' m', 1)}
                         onChange={focusOffset => onTuningChange?.({ focusOffset })}
                         onDragStart={onSliderPointerDown}
                         onDragEnd={onSliderCommit}

@@ -50,6 +50,7 @@ import {
 } from './engine/environment';
 import { MachiGround } from './engine/fx/ground';
 import { MachiPost, type MachiAtmosphereFrame } from './engine/fx/post';
+import { resolveMachiLens } from './engine/lens';
 import { resolveMachiRenderQuality, type MachiRenderQuality } from './engine/quality';
 import { MachiReflection } from './engine/fx/reflection';
 import { MachiWeather } from './engine/fx/weather';
@@ -97,6 +98,8 @@ export interface MachiRuntimeOptions {
     previewMode: boolean;
     /** 自定义视角下拖动停稳了：新视角（相对默认构图）与它属于哪个场景，交给外面存进 tuning。 */
     onViewChange?: (view: MachiCameraView, scene: MachiSceneId) => void;
+    /** 换上了一个场景（取景控制条按它调视角）。 */
+    onSceneShown?: (scene: MachiSceneId) => void;
     /** 主题没有图标时招牌上的兜底图标。 */
     fallbackIcons: readonly string[];
     /** WebGL 上下文丢了：外壳重建运行时。 */
@@ -296,7 +299,7 @@ export class MachiRuntime {
         this.scene.background = this.sky.texture;
         this.camera.onCommit = view => this.options.onViewChange?.(view, this.stageId);
         this.camera.onWake = () => this.wake();
-        this.camera.setMotion(options.tuning.motion);
+        this.camera.setMotion(options.tuning.motion, options.tuning.motionSpeed);
         this.mountScene(sceneId);
 
         if (!options.previewMode) this.camera.attach(canvas);
@@ -363,6 +366,7 @@ export class MachiRuntime {
         this.reflection.planeY = stage.reflectionPlaneY;
         this.camera.setFraming(stage.framing, this.customView(id));
         reportMachiShownScene(this, id);
+        this.options.onSceneShown?.(id);
         stage.setContent(this.sceneContent(palette));
         this.boardTarget = null;
         this.environmentDirty = true;
@@ -569,16 +573,12 @@ export class MachiRuntime {
             this.ground.uniforms.uReflectMatrix.value.copy(this.reflection.textureMatrix);
         }
         const pixelWorldSize = (camera.top - camera.bottom) / camera.zoom / Math.max(1, this.size.height * this.pixelRatio);
-        // 景深按相对默认构图的缩放走：默认构图下的微缩感不变，拉近时景深变浅。强度过 1 以后加大离焦层的模糊半径。
+        // 景深按相对默认构图的缩放走：默认构图下的微缩感不变，拉近时景深变浅。光圈按 f/8 换算：光圈每大一档，
+        // 清晰的那一层薄一截、离焦圆大一圈（resolveMachiLens）。
         const zoom = camera.zoom / this.camera.defaultView.zoom;
-        const tuning = this.tuning;
         this.post.render(pixelWorldSize, this.camera.focusDistance, this.atmosphere, {
             focus: this.focusDepth(),
-            focusBand: (3.4 * tuning.dofRange) / zoom,
-            focusFalloff: (7.5 * tuning.dofRange) / zoom,
-            dof: 0.9 * Math.min(1, tuning.dof),
-            blur: Math.max(1, tuning.dof),
-            tilt: tuning.tiltShift,
+            ...resolveMachiLens(this.tuning, zoom),
             aberration: 0.014,
             vignette: 0.55,
             grain: 0.032,
@@ -809,7 +809,7 @@ export class MachiRuntime {
         }
         if (previous.timeOfDay !== tuning.timeOfDay || previous.weather !== tuning.weather) this.refreshEnvironmentTarget();
         this.camera.setCustom(this.customView(this.stageId));
-        this.camera.setMotion(tuning.motion);
+        this.camera.setMotion(tuning.motion, tuning.motionSpeed);
         if (qualityKey(previous.quality) !== qualityKey(tuning.quality)) {
             // 换了画质设置：自动降级从这套设置重新开始。
             this.degrade = 0;

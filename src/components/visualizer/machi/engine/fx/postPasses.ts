@@ -2,13 +2,11 @@ import * as THREE from 'three';
 import { FullScreenQuad, Pass } from 'three/examples/jsm/postprocessing/Pass.js';
 
 // src/components/visualizer/machi/engine/fx/postPasses.ts
-// 町景后处理的三道自定义 pass：
+// 町景后处理的两道自定义 pass（镜头 pass 在 lensPass.ts）与它们共用的小工具：
 // - 氛围（MachiAtmospherePass）：深度拉普拉斯墨线；由深度还原世界坐标，画贴地的薄雾（随风漂的噪声，靠近店门和路灯时
 //   被灯染暖，像光在雾里散开），雾天再按深度蒙一层灰；天空像素上画慢慢漂的云（云量随天气）和闪电。
 // - 光条（MachiStreakPass）：亮处在四分之一分辨率上只做横向模糊，叠回去成为横向的镜头光条（变形宽银幕镜头那种）。
-// - 镜头（MachiLensPass）：按深度离焦的微缩景深（半分辨率模糊再混合）、边缘色差、暗角、胶片颗粒；晴夜的星星画在
-//   景深之后（天空离焦最远，先画的话会被模糊掉）。
-// 三道都只用全屏四边形，额外的贴图都在低分辨率上。
+// 都只用全屏四边形，额外的贴图都在低分辨率上。
 
 const FULLSCREEN_VERTEX = /* glsl */ `
 varying vec2 vUv;
@@ -47,7 +45,7 @@ export interface MachiSceneTarget {
 }
 
 /** 全屏 pass 的材质：不做深度测试、不写深度。 */
-const fullscreenMaterial = (parameters: THREE.ShaderMaterialParameters) => new THREE.ShaderMaterial({
+export const fullscreenMaterial = (parameters: THREE.ShaderMaterialParameters) => new THREE.ShaderMaterial({
     vertexShader: FULLSCREEN_VERTEX,
     depthTest: false,
     depthWrite: false,
@@ -238,7 +236,8 @@ void main() {
 }
 `;
 
-const halfFloatTarget = () => new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+/** 低分辨率的 HDR 中间贴图（尺寸由用它的 pass 定）。 */
+export const halfFloatTarget = () => new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
 
 /** 横向镜头光条：亮处降到四分之一分辨率，横向越扩越宽地模糊三次，再叠回去。 */
 export class MachiStreakPass extends Pass {
@@ -302,199 +301,6 @@ export class MachiStreakPass extends Pass {
         this.bright.dispose();
         this.blur.dispose();
         this.add.dispose();
-        this.quad.dispose();
-    }
-}
-
-const GAUSS_FRAGMENT = /* glsl */ `
-uniform sampler2D tDiffuse;
-uniform vec2 uStep;
-varying vec2 vUv;
-void main() {
-    vec3 sum = texture2D(tDiffuse, vUv).rgb * 0.227;
-    sum += (texture2D(tDiffuse, vUv + uStep * 1.385).rgb + texture2D(tDiffuse, vUv - uStep * 1.385).rgb) * 0.316;
-    sum += (texture2D(tDiffuse, vUv + uStep * 3.231).rgb + texture2D(tDiffuse, vUv - uStep * 3.231).rgb) * 0.070;
-    gl_FragColor = vec4(sum, 1.0);
-}
-`;
-
-const LENS_FRAGMENT = /* glsl */ `
-uniform sampler2D tDiffuse;
-uniform sampler2D tBlur;
-uniform sampler2D tDepth;
-uniform float uDepthRange;
-uniform float uFocus;
-uniform float uFocusBand;
-uniform float uFocusFalloff;
-uniform float uDof;
-uniform float uTilt;
-uniform float uAberration;
-uniform float uVignette;
-uniform float uGrain;
-uniform float uFade;
-uniform float uStars;
-uniform float uTime;
-uniform float uAspect;
-varying vec2 vUv;
-float gHash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
-void main() {
-    vec2 centered = vUv - 0.5;
-    float edge = dot(centered, centered);
-    // 边缘色差：红蓝沿径向错开，中间不动。
-    vec2 shift = centered * edge * uAberration;
-    vec3 sharp = vec3(
-        texture2D(tDiffuse, vUv + shift).r,
-        texture2D(tDiffuse, vUv).g,
-        texture2D(tDiffuse, vUv - shift).b
-    );
-    vec3 blurred = texture2D(tBlur, vUv).rgb;
-    // 微缩景深：离对焦深度越远越虚，再叠一点上下的移轴。
-    float depth = texture2D(tDepth, vUv).x * uDepthRange;
-    float coc = smoothstep(uFocusBand, uFocusBand + uFocusFalloff, abs(depth - uFocus)) * uDof;
-    coc = max(coc, smoothstep(0.2, 0.55, abs(vUv.y - 0.5)) * uTilt);
-    vec3 color = mix(sharp, blurred, clamp(coc, 0.0, 1.0));
-    // 晴夜的星星：天空像素上格子里稀疏的亮点，各自慢慢闪。
-    if (uStars > 0.001 && texture2D(tDepth, vUv).x > 0.9999) {
-        vec2 sp = vec2(vUv.x * uAspect, vUv.y) * 140.0;
-        vec2 cell = floor(sp);
-        float starSeed = gHash(cell);
-        vec2 starAt = vec2(gHash(cell + 3.7), gHash(cell + 9.1)) * 0.6 + 0.2;
-        float star = step(0.984, starSeed) * smoothstep(0.24, 0.0, length(fract(sp) - starAt))
-            * (0.55 + 0.45 * sin(uTime * (0.8 + starSeed * 3.0) + starSeed * 60.0));
-        color += vec3(0.85, 0.9, 1.0) * star * uStars * 1.3 * smoothstep(0.1, 0.55, vUv.y);
-    }
-    // 暗角。
-    vec2 v = centered * vec2(uAspect, 1.0);
-    float vignette = smoothstep(1.15, 0.35, length(v) * 1.15);
-    color *= mix(1.0, vignette, uVignette);
-    // 颗粒：跟亮度走，暗部更细。
-    float grain = gHash(vUv * vec2(1733.0, 977.0) + fract(uTime * 7.31)) - 0.5;
-    color += grain * uGrain * (0.25 + dot(color, vec3(0.3333)));
-    gl_FragColor = vec4(max(color, 0.0) * uFade, 1.0);
-}
-`;
-
-export interface MachiLensSettings {
-    /** 对焦深度（离镜头的距离）、清晰的半宽、从清晰到全虚的过渡宽度（都是米）。 */
-    focus: number;
-    focusBand: number;
-    focusFalloff: number;
-    /** 离焦处虚到几成（0..1），与离焦层的模糊半径倍数（1 是默认，越大越虚）。 */
-    dof: number;
-    blur: number;
-    tilt: number;
-    aberration: number;
-    vignette: number;
-    grain: number;
-    /** 晴夜的星星 0..1。 */
-    stars?: number;
-    /** 换场景时整幅画面淡到黑（0）再淡回来（1）。 */
-    fade?: number;
-}
-
-/** 镜头：半分辨率高斯模糊出离焦层，按深度混合；再加色差、暗角、颗粒。 */
-export class MachiLensPass extends Pass {
-    private readonly targets = [halfFloatTarget(), halfFloatTarget()];
-    private readonly gauss: THREE.ShaderMaterial;
-    private readonly copy: THREE.ShaderMaterial;
-    readonly material: THREE.ShaderMaterial;
-    private readonly quad = new FullScreenQuad();
-    private size = new THREE.Vector2(1, 1);
-    /** 画质允许景深（自动降级会关掉）。 */
-    dofEnabled = true;
-    /** 这一帧有景深或移轴：没有就不做离焦层。 */
-    private dofActive = true;
-    private blurScale = 1;
-
-    constructor(private readonly scene: MachiSceneTarget) {
-        super();
-        this.gauss = fullscreenMaterial({
-            uniforms: { tDiffuse: { value: null }, uStep: { value: new THREE.Vector2() } },
-            fragmentShader: GAUSS_FRAGMENT,
-        });
-        this.copy = fullscreenMaterial({
-            uniforms: { tDiffuse: { value: null } },
-            fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main() { gl_FragColor = texture2D(tDiffuse, vUv); }',
-        });
-        this.material = fullscreenMaterial({
-            uniforms: {
-                tDiffuse: { value: null },
-                tBlur: { value: null },
-                tDepth: { value: null },
-                uDepthRange: { value: 100 },
-                uFocus: { value: 60 },
-                uFocusBand: { value: 3 },
-                uFocusFalloff: { value: 7 },
-                uDof: { value: 0.85 },
-                uTilt: { value: 0.35 },
-                uAberration: { value: 0.012 },
-                uVignette: { value: 0.55 },
-                uGrain: { value: 0.035 },
-                uStars: { value: 0 },
-                uFade: { value: 1 },
-                uTime: { value: 0 },
-                uAspect: { value: 16 / 9 },
-            },
-            fragmentShader: LENS_FRAGMENT,
-        });
-    }
-
-    setSize(width: number, height: number) {
-        this.size.set(Math.max(1, Math.round(width / 2)), Math.max(1, Math.round(height / 2)));
-        this.targets.forEach(target => target.setSize(this.size.x, this.size.y));
-        this.material.uniforms.uAspect!.value = width / Math.max(1, height);
-    }
-
-    configure(settings: MachiLensSettings, depthRange: number, time: number) {
-        const uniforms = this.material.uniforms;
-        this.dofActive = this.dofEnabled && (settings.dof > 0.001 || settings.tilt > 0.001);
-        this.blurScale = settings.blur;
-        uniforms.uDepthRange!.value = depthRange;
-        uniforms.uFocus!.value = settings.focus;
-        uniforms.uFocusBand!.value = settings.focusBand;
-        uniforms.uFocusFalloff!.value = settings.focusFalloff;
-        uniforms.uDof!.value = this.dofActive ? settings.dof : 0;
-        uniforms.uTilt!.value = this.dofActive ? settings.tilt : 0;
-        uniforms.uAberration!.value = settings.aberration;
-        uniforms.uVignette!.value = settings.vignette;
-        uniforms.uGrain!.value = settings.grain;
-        uniforms.uStars!.value = settings.stars ?? 0;
-        uniforms.uFade!.value = settings.fade ?? 1;
-        uniforms.uTime!.value = time;
-    }
-
-    render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget) {
-        const [a, b] = this.targets as [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget];
-        if (this.dofActive) {
-            this.copy.uniforms.tDiffuse!.value = readBuffer.texture;
-            this.quad.material = this.copy;
-            renderer.setRenderTarget(a);
-            this.quad.render(renderer);
-            const near = 1.6 * this.blurScale;
-            const far = 2.6 * this.blurScale;
-            const passes: [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget, number, number][] = [[a, b, near, 0], [b, a, 0, near], [a, b, far, 0], [b, a, 0, far]];
-            passes.forEach(([from, to, x, y]) => {
-                this.gauss.uniforms.tDiffuse!.value = from.texture;
-                (this.gauss.uniforms.uStep!.value as THREE.Vector2).set(x / this.size.x, y / this.size.y);
-                this.quad.material = this.gauss;
-                renderer.setRenderTarget(to);
-                this.quad.render(renderer);
-            });
-        }
-        const uniforms = this.material.uniforms;
-        uniforms.tDiffuse!.value = readBuffer.texture;
-        uniforms.tBlur!.value = this.dofActive ? a.texture : readBuffer.texture;
-        uniforms.tDepth!.value = this.scene.target.depthTexture;
-        this.quad.material = this.material;
-        renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
-        this.quad.render(renderer);
-    }
-
-    dispose() {
-        this.targets.forEach(target => target.dispose());
-        this.gauss.dispose();
-        this.copy.dispose();
-        this.material.dispose();
         this.quad.dispose();
     }
 }

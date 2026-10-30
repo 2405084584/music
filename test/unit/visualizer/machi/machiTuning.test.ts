@@ -35,14 +35,19 @@ describe('normalizeMachiTuning', () => {
         expect(normalizeMachiTuning({ view, views: { konbini: view } }).views).toEqual({ konbini: view, station: DEFAULT_MACHI_VIEW, kowloon: DEFAULT_MACHI_VIEW });
     });
 
-    it('keeps the camera drift switch', () => {
+    it('keeps the camera drift switch and its speed inside the range', () => {
         expect(normalizeMachiTuning({ motion: true }).motion).toBe(true);
         expect(normalizeMachiTuning({ motion: 'yes' }).motion).toBe(false);
+        expect(normalizeMachiTuning({ motionSpeed: 2 }).motionSpeed).toBe(2);
+        expect(normalizeMachiTuning({ motionSpeed: 9 }).motionSpeed).toBe(3);
+        expect(normalizeMachiTuning({ motionSpeed: 'fast' }).motionSpeed).toBe(1);
     });
 
     it('clamps the depth of field and falls back to centre focus', () => {
-        const tuning = normalizeMachiTuning({ dof: 5, dofRange: 0, tiltShift: -1, focus: 'eyes', focusOffset: -30 });
-        expect(tuning).toMatchObject({ dof: 2, dofRange: 0.3, tiltShift: 0, focus: 'center', focusOffset: -10 });
+        const tuning = normalizeMachiTuning({ aperture: 0.5, dof: 5, dofRange: 0, tiltShift: -1, focus: 'eyes', focusOffset: -30 });
+        expect(tuning).toMatchObject({ aperture: 1.4, dof: 2, dofRange: 0.3, tiltShift: 0, focus: 'center', focusOffset: -10 });
+        expect(normalizeMachiTuning({ aperture: 2.8 }).aperture).toBe(2.8);
+        expect(normalizeMachiTuning({ aperture: null }).aperture).toBe(8);
         expect(normalizeMachiTuning({ dof: 0, focus: 'lyrics' })).toMatchObject({ dof: 0, focus: 'lyrics' });
     });
 

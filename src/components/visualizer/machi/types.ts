@@ -1,6 +1,6 @@
 // src/components/visualizer/machi/types.ts
 // 町景的 tuning：哪个场景、什么时间、什么天气（三项都可以是“自动”：场景和天气按歌的 seed 选，时间跟本地时钟走），
-// 镜头（默认构图，或固定在自己调的视角上，每个场景各存一份；可以开着缓慢的运镜）与景深（强弱、清晰范围、移轴、对焦在哪），以及画质（分辨率、抗锯齿、阴影、
+// 镜头（默认构图，或固定在自己调的视角上，每个场景各存一份；可以开着缓慢的运镜，快慢可调）与景深（光圈、强弱、清晰范围、移轴、对焦在哪），以及画质（分辨率、抗锯齿、阴影、
 // 倒影、辉光、自动降级；面板上的高 / 平衡 / 低只是几套细项，不单独存）。
 
 /** 场景：便利店街角、加油站停车场、城寨酒吧。 */
@@ -42,13 +42,23 @@ export const MACHI_VIEW_LIMITS = {
     panZ: { min: -5, max: 5 },
 } as const satisfies Record<keyof MachiCameraView, { min: number; max: number }>;
 
-/** 景深各项的范围：强度（0 关，1 是默认的微缩感，到 2 更虚）、清晰范围的倍数、移轴、手动对焦的前后（米）。 */
+/**
+ * 景深各项的范围：光圈（f 值：越小光圈越大，清晰的那一层越薄、焦外越虚，灯光虚成圆形光斑；f/8 是原来的微缩感）、
+ * 强度（0 关，1 是默认，到 2 更虚）、清晰范围的倍数、移轴、手动对焦的前后（米）。
+ */
 export const MACHI_DOF_LIMITS = {
+    aperture: { min: 1.4, max: 16 },
     dof: { min: 0, max: 2 },
     dofRange: { min: 0.3, max: 3 },
     tiltShift: { min: 0, max: 1 },
     focusOffset: { min: -10, max: 10 },
 } as const;
+
+/** 光圈的几档（f 值，相邻两档进光量差一倍）：滑块按档走，存的是 f 值。 */
+export const MACHI_APERTURE_STOPS = [1.4, 2, 2.8, 4, 5.6, 8, 11, 16] as const;
+
+/** 运镜速度的范围（倍数，1 是原来的快慢）。 */
+export const MACHI_MOTION_SPEED_LIMITS = { min: 0.25, max: 3 } as const;
 
 /** 渲染分辨率：屏幕像素的几成（高 DPI 屏上最多按 2 倍 CSS 像素算）。 */
 export const MACHI_RENDER_SCALES = [1, 0.75, 0.5] as const;
@@ -96,6 +106,10 @@ export interface MachiTuning {
     views: Record<MachiSceneId, MachiCameraView>;
     /** 运镜：镜头在静止位置附近缓慢地转、推拉、平移（随歌曲暂停）。 */
     motion: boolean;
+    /** 运镜的快慢（倍数）。 */
+    motionSpeed: number;
+    /** 光圈（f 值）。 */
+    aperture: number;
     dof: number;
     dofRange: number;
     tiltShift: number;
@@ -119,6 +133,8 @@ export const DEFAULT_MACHI_TUNING: MachiTuning = {
     camera: 'default',
     views: DEFAULT_MACHI_VIEWS,
     motion: false,
+    motionSpeed: 1,
+    aperture: 8,
     dof: 1,
     dofRange: 1,
     tiltShift: 0.3,

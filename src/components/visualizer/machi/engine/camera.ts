@@ -96,6 +96,7 @@ export class MachiCamera {
     private readonly spherical = new THREE.Spherical();
     /** 运镜：开没开、走到哪了（氛围时间）、此刻的幅度（0 静止位置，1 全幅）。 */
     private motion = false;
+    private motionSpeed = 1;
     private motionTime = 0;
     private motionWeight = 0;
     /** 镜头有变化、需要补一帧（暂停时按需渲染用）。 */
@@ -128,8 +129,9 @@ export class MachiCamera {
         this.settle();
     }
 
-    /** 开关运镜：开了从静止位置慢慢走起来，关了慢慢回到静止位置。 */
-    setMotion(motion: boolean) {
+    /** 开关运镜：开了从静止位置慢慢走起来，关了慢慢回到静止位置。speed 是快慢的倍数（只改往后走的快慢，不跳）。 */
+    setMotion(motion: boolean, speed = 1) {
+        this.motionSpeed = speed;
         if (motion === this.motion) return;
         this.motion = motion;
         this.needsRender = true;
@@ -442,7 +444,7 @@ export class MachiCamera {
             this.motionWeight = 0;
             return;
         }
-        if (this.motion) this.motionTime += ambientDelta;
+        if (this.motion) this.motionTime += ambientDelta * this.motionSpeed;
         const weight = this.motionWeight;
         const step = realDelta / DRIFT_RAMP_SECONDS;
         this.motionWeight = this.motion ? Math.min(1, weight + step) : Math.max(0, weight - step);

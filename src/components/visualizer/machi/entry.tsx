@@ -1,10 +1,11 @@
-import React from 'react';
-import { Orbit } from 'lucide-react';
+import React, { useSyncExternalStore } from 'react';
+import { Camera, Orbit } from 'lucide-react';
 import { BEAT_EFFECT_IDS } from '../../../services/beatFx/beatEffects';
 import { cycleValue, QuickControlChip, QuickControlToggle } from '../../shared/QuickControlChip';
 import { defineVisualizer, type VisualizerQuickControlsProps } from '../definition';
+import { isMachiCameraBarOpen, subscribeMachiCameraBar, toggleMachiCameraBar } from './cameraBar';
+import { MACHI_CAMERA_LABEL_KEYS } from './cameraControls';
 import MachiSettingsPanel, {
-    MACHI_CAMERA_LABEL_KEYS,
     MACHI_SCENE_CHOICES,
     MACHI_SCENE_LABEL_KEYS,
     MACHI_TIME_LABEL_KEYS,
@@ -20,7 +21,25 @@ const VisualizerMachi = React.lazy(() => import('./VisualizerMachi'));
 // convenience-store street corner for now) whose signs carry the lyrics — the current line lit up word by word on
 // an LED screen, the next line on an LED ticker, the song on the shop signs. The scene, time of day and weather are
 // tuning (each can be "auto"), and so are a pinned camera view per scene, a slow camera drift and the depth of field; the theme's colours and icons
-// repaint the "chain".
+// repaint the "chain". The panel's camera button opens a viewfinder bar on the player page (MachiCameraBar) to frame the shot there.
+
+/** 控制面板里的摄影机按钮：开关播放页上的取景控制条，打开时收起面板，让出画面。 */
+const MachiCameraBarButton: React.FC<{ label: string; onClosePanel?: () => void }> = ({ label, onClosePanel }) => {
+    const open = useSyncExternalStore(subscribeMachiCameraBar, isMachiCameraBarOpen, isMachiCameraBarOpen);
+    return (
+        <QuickControlToggle
+            active={open}
+            label={label}
+            onToggle={() => {
+                toggleMachiCameraBar();
+                if (!open) onClosePanel?.();
+            }}
+        >
+            <Camera size={14} />
+        </QuickControlToggle>
+    );
+};
+
 export default defineVisualizer({
     mode: 'machi',
     order: 27,
@@ -69,7 +88,7 @@ export default defineVisualizer({
     // Deliberately unkeyed on the seed: the runtime takes a track change in place (pixiRuntimeHost.ts).
     render: props => <VisualizerMachi {...props} machiTuning={machiTuning.read(props.visualizerTunings)} />,
     renderSettingsPanel: props => <MachiSettingsPanel {...props} />,
-    renderQuickControls: ({ tuning, onTuningChange, t }: VisualizerQuickControlsProps<MachiTuning>) => {
+    renderQuickControls: ({ tuning, onTuningChange, onClosePanel, t }: VisualizerQuickControlsProps<MachiTuning>) => {
         const scene = t(MACHI_SCENE_LABEL_KEYS[tuning.scene]);
         const time = t(MACHI_TIME_LABEL_KEYS[tuning.timeOfDay]);
         const weather = t(MACHI_WEATHER_LABEL_KEYS[tuning.weather]);
@@ -104,6 +123,7 @@ export default defineVisualizer({
                 >
                     <Orbit size={14} />
                 </QuickControlToggle>
+                <MachiCameraBarButton label={t('options.machiCameraBar')} onClosePanel={onClosePanel} />
             </>
         );
     },

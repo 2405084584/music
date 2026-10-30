@@ -127,7 +127,12 @@ class KonbiniScene implements MachiScene {
     readonly reflectionPlaneY = 0.06;
     readonly surfaces;
     readonly puddles;
-    readonly focusPoint = new THREE.Vector3(BOARD.cx, BOARD.y0 + BOARD.faceHeight / 2, BOARD.cz);
+    // 三面塔正对默认镜头那一面的中心：对焦对着字，不是塔心（大光圈下清晰的那一层只有一米来厚，塔心离字面一米六）。
+    readonly focusPoint = new THREE.Vector3(
+        BOARD.cx + Math.sin(BOARD.azimuth) * BOARD.faceWidth / (2 * Math.sqrt(3)),
+        BOARD.y0 + BOARD.faceHeight / 2,
+        BOARD.cz + Math.cos(BOARD.azimuth) * BOARD.faceWidth / (2 * Math.sqrt(3)),
+    );
     private readonly world = new THREE.Group();
     private songProps: THREE.Group;
     private readonly productBatches: KonbiniProductBatch[];
