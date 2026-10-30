@@ -2102,6 +2102,8 @@ export default {
     "bravaisSeamDirectionDesc": "Vertical opens the info strip between two block columns, parting the wall left and right. Horizontal opens it between two block rows, parting the wall top and bottom, with the strip running across the screen. List panels, forms and the artist / album posters always stay vertical.",
     "bravaisSeamDirectionAuto": "Automatic",
     "bravaisSeamDirectionAutoDesc": "A row on tall screens (a phone held upright, a tall window), a column on wide ones; switches when the screen turns.",
+    "bravaisSeamDirectionAutoReverse": "Automatic (reversed)",
+    "bravaisSeamDirectionAutoReverseDesc": "A column on tall screens, a row on wide ones (a desktop window, a phone held sideways); switches when the screen turns.",
     "bravaisSeamDirectionVertical": "Vertical",
     "bravaisSeamDirectionVerticalDesc": "Opens between two block columns; the wall parts left and right.",
     "bravaisSeamDirectionHorizontal": "Horizontal",
