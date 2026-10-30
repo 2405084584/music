@@ -2,7 +2,8 @@ import { NEBBIA_SCENE_GLSL } from './nebbiaSceneGlsl';
 
 // src/components/visualizer/nebbia/nebbiaShaders.ts
 // 雾笺的着色器：雾的预渲染（两层模糊的窗外各画一次，写进两张 1/4 分辨率的浮点纹理）、主画面（雾、擦痕、水珠折射合成，
-// 照搬 raindrop-fx 的 compose.glsl；不支持浮点渲染目标时用自己算雾的那一版），和画水珠精灵的实例化着色器。
+// 照搬 raindrop-fx 的 compose.glsl；不支持浮点渲染目标时用自己算雾的那一版）、往楼群缓存里补画（nebbiaBuildingCache.ts），
+// 和画水珠精灵的实例化着色器。
 // 预渲染和主画面分成两个程序、各只有一个输出：合在一个程序里（带回退分支、两个输出）时，D3D11 上链接要 3 秒、
 // 第一次画进两张纹理时还要再编 3 秒多；分开后链接不到 1 秒，第一次画不再重编（nebbiaPrograms.ts 在后台编）。
 
@@ -10,12 +11,14 @@ export const NEBBIA_VS = /* glsl */ `#version 300 es
 in vec2 aPos; out vec2 vUv;
 void main() { vUv = aPos * 0.5 + 0.5; vUv.y = 1.0 - vUv.y; gl_Position = vec4(aPos, 0.0, 1.0); }`;
 
-// 街景（nebbiaSceneGlsl.ts）读的 uniform，两个程序共用
+// 街景（nebbiaSceneGlsl.ts）读的 uniform，几个程序共用
 const SCENE_UNIFORMS = /* glsl */ `precision highp float;
 uniform vec2 uRes, uSceneShift; uniform float uTime, uBus, uNeon;
 uniform vec3 uSky0, uSky1, uLa, uLb, uLc;
 // 聚光灯：光源（远处楼底）、照到玻璃上的点、光斑半径，都在 scene 坐标；uSpotI 强度
 uniform vec2 uSpotSrc, uSpotSrc2, uSpotTgt; uniform float uSpotR, uSpotI;
+// 楼群缓存（nebbiaBuildingCache.ts）：三档模糊 × 远近两层，预乘颜色；uBldOn 每档画好了没有，uBldGeo 每档 (y0, y1, 横向周期)
+uniform bvec3 uBldOn; uniform sampler2D uBld0, uBld1, uBld2, uBld3, uBld4, uBld5; uniform vec3 uBldGeo[3];
 in vec2 vUv; layout(location = 0) out vec4 outColor;
 ${NEBBIA_SCENE_GLSL}`;
 
@@ -29,6 +32,20 @@ uniform float uFogB;
 void main() {
   vec2 s0 = vUv + uSceneShift, q0 = vec2(s0.x * uRes.x / uRes.y, s0.y);
   outColor = vec4(scene(q0, uFogB), 1.0);
+}`;
+
+/**
+ * 往楼群缓存里补画一段：缓存的一格像素对应的世界横坐标，取落在 [uFillX0, uFillX0 + 周期) 里的那一个。
+ * uFillGeo 同 uBldGeo，uFillSize 是缓存的像素尺寸。只用到 building()，街景的其余部分（和缓存的采样器）编译时都去掉。
+ */
+export const NEBBIA_BLD_FILL_FS = /* glsl */ `#version 300 es
+${SCENE_UNIFORMS}
+uniform float uFillB, uFillLayer, uFillX0; uniform vec3 uFillGeo; uniform vec2 uFillSize;
+void main() {
+  float span = uFillGeo.z;
+  float xw = uFillX0 + fract((gl_FragCoord.x / uFillSize.x * span - uFillX0) / span) * span;
+  vec4 r = building(vec2(xw, mix(uFillGeo.x, uFillGeo.y, gl_FragCoord.y / uFillSize.y)), uFillB, 0.0, uFillLayer);
+  outColor = vec4(r.rgb * r.a, r.a);
 }`;
 
 const MAIN_FS = (fogTex: boolean) => /* glsl */ `#version 300 es
