@@ -1,7 +1,7 @@
 import { NEBBIA_SCENE_GLSL } from './nebbiaSceneGlsl';
 
 // src/components/visualizer/nebbia/nebbiaShaders.ts
-// 雾笺的着色器：雾的预渲染（两层模糊的窗外各画一次，写进两张 1/4 分辨率的浮点纹理）、主画面（雾、擦痕、水珠折射合成，
+// 雾笺的着色器：雾的预渲染（两层模糊的窗外各画一次，写进 1/4、1/8 分辨率的两张浮点纹理）、主画面（雾、擦痕、水珠折射合成，
 // 照搬 raindrop-fx 的 compose.glsl；不支持浮点渲染目标时用自己算雾的那一版）、往楼群缓存里补画（nebbiaBuildingCache.ts）、
 // 算静态噪声纹理（nebbiaNoiseTex.ts），和画水珠精灵的实例化着色器。
 // 预渲染和主画面分成两个程序、各只有一个输出：合在一个程序里（带回退分支、两个输出）时，D3D11 上链接要 3 秒、
