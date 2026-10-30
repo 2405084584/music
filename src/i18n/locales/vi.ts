@@ -374,6 +374,7 @@ export default {
     "syncFailed": "Đồng bộ thất bại",
     "loginExpired": "Phiên đăng nhập hết hạn. Đăng nhập lại",
     "songPreviewOnly": "Chỉ có thể nghe thử. Đăng nhập tài khoản có quyền phát toàn bộ bài hát.",
+    "songVipFullUnavailable": "Trình phát bên thứ ba tạm thời không thể lấy bản đầy đủ của bài hát VIP",
     "songSubscriptionRequired": "Cần tài khoản {{provider}} trả phí để phát",
     "songRegionRestricted": "Chỉ phát tại Trung Quốc đại lục. Kiểm tra kết nối mạng.",
     "songRetrying": "Kết nối thất bại. Đang thử lại…",
