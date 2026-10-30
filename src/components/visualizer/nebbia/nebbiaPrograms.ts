@@ -1,9 +1,9 @@
 import { checkLinked, compileShader, startProgram } from './nebbiaGlUtils';
 import { NEBBIA_MASK_FS, NEBBIA_MASK_VS } from './nebbiaMaskGl';
-import { NEBBIA_BLD_FILL_FS, NEBBIA_FOG_FS, NEBBIA_MAIN_FALLBACK_FS, NEBBIA_MAIN_FS, NEBBIA_SPRITE_FS, NEBBIA_SPRITE_VS, NEBBIA_VS } from './nebbiaShaders';
+import { NEBBIA_BLD_FILL_FS, NEBBIA_FOG_FS, NEBBIA_NOISE_FS, NEBBIA_MAIN_FALLBACK_FS, NEBBIA_MAIN_FS, NEBBIA_SPRITE_FS, NEBBIA_SPRITE_VS, NEBBIA_VS } from './nebbiaShaders';
 
 // src/components/visualizer/nebbia/nebbiaPrograms.ts
-// 雾笺的五个着色器程序（雾的预渲染、主画面、水珠精灵、擦痕遮罩、楼群缓存的补画）在后台编：有 KHR_parallel_shader_compile 时提交了不等，
+// 雾笺的六个着色器程序（雾的预渲染、主画面、水珠精灵、擦痕遮罩、楼群缓存的补画、静态噪声纹理）在后台编：有 KHR_parallel_shader_compile 时提交了不等，
 // 每帧问一次编好没有，编好才查链接结果（查结果会一直等到编完，D3D11 上冷编要将近 1 秒）；没有这个扩展就当场等。
 // 运行时（nebbiaGl.ts）和启动时的预热（nebbiaShaderWarmup.ts）都从这里编：源码、属性位置一样，GPU 进程的程序缓存才对得上。
 
@@ -16,6 +16,8 @@ export interface NebbiaPrograms {
     mask: WebGLProgram;
     /** 往楼群缓存里补画（nebbiaBuildingCache.ts）。 */
     bldFill: WebGLProgram;
+    /** 算静态噪声纹理（nebbiaNoiseTex.ts）。 */
+    noise: WebGLProgram;
 }
 
 type ParallelCompile = { COMPLETION_STATUS_KHR: number };
@@ -39,7 +41,7 @@ export const canRenderFogToFloat = (gl: WebGL2RenderingContext): boolean => {
     return ok;
 };
 
-/** 提交五个程序的编译，`poll` 问编好没有。 */
+/** 提交六个程序的编译，`poll` 问编好没有。 */
 export class NebbiaProgramBuild {
     readonly programs: NebbiaPrograms;
     private readonly parallel: ParallelCompile | null;
@@ -55,6 +57,7 @@ export class NebbiaProgramBuild {
             sprite: startProgram(gl, compileShader(gl, gl.VERTEX_SHADER, NEBBIA_SPRITE_VS), frag(NEBBIA_SPRITE_FS), { aCorner: 0, aRect: 1, aParam: 2 }),
             mask: startProgram(gl, compileShader(gl, gl.VERTEX_SHADER, NEBBIA_MASK_VS), frag(NEBBIA_MASK_FS), { aCorner: 0, aSeg: 1, aParam: 2 }),
             bldFill: startProgram(gl, vs, frag(NEBBIA_BLD_FILL_FS), { aPos: 0 }),
+            noise: startProgram(gl, vs, frag(NEBBIA_NOISE_FS), { aPos: 0 }),
         };
     }
 
@@ -62,7 +65,7 @@ export class NebbiaProgramBuild {
     poll(): boolean {
         if (this.done) return true;
         const { gl, parallel } = this;
-        const list = [this.programs.fog, this.programs.main, this.programs.sprite, this.programs.mask, this.programs.bldFill].filter((p): p is WebGLProgram => !!p);
+        const list = [this.programs.fog, this.programs.main, this.programs.sprite, this.programs.mask, this.programs.bldFill, this.programs.noise].filter((p): p is WebGLProgram => !!p);
         if (parallel && !list.every(p => gl.getProgramParameter(p, parallel.COMPLETION_STATUS_KHR))) return false;
         for (const p of list) checkLinked(gl, p);
         // 链接好了，着色器对象不再要：删掉（挂在程序上的等程序删了才真正释放）

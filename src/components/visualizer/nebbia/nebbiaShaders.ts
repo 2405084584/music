@@ -1,9 +1,9 @@
 import { NEBBIA_SCENE_GLSL } from './nebbiaSceneGlsl';
 
 // src/components/visualizer/nebbia/nebbiaShaders.ts
-// 雾笺的着色器：雾的预渲染（两层模糊的窗外各画一次，写进两张 1/4 分辨率的浮点纹理）、主画面（雾、擦痕、水珠折射合成，
-// 照搬 raindrop-fx 的 compose.glsl；不支持浮点渲染目标时用自己算雾的那一版）、往楼群缓存里补画（nebbiaBuildingCache.ts），
-// 和画水珠精灵的实例化着色器。
+// 雾笺的着色器：雾的预渲染（两层模糊的窗外各画一次，写进 1/4、1/8 分辨率的两张浮点纹理）、主画面（雾、擦痕、水珠折射合成，
+// 照搬 raindrop-fx 的 compose.glsl；不支持浮点渲染目标时用自己算雾的那一版）、往楼群缓存里补画（nebbiaBuildingCache.ts）、
+// 算静态噪声纹理（nebbiaNoiseTex.ts），和画水珠精灵的实例化着色器。
 // 预渲染和主画面分成两个程序、各只有一个输出：合在一个程序里（带回退分支、两个输出）时，D3D11 上链接要 3 秒、
 // 第一次画进两张纹理时还要再编 3 秒多；分开后链接不到 1 秒，第一次画不再重编（nebbiaPrograms.ts 在后台编）。
 
@@ -23,8 +23,8 @@ in vec2 vUv; layout(location = 0) out vec4 outColor;
 ${NEBBIA_SCENE_GLSL}`;
 
 /**
- * 雾的预渲染：雾里的两层窗外（模糊半径 uFogB = 0.03、0.09 屏高）本来就很糊，在 1/4 分辨率下算好、主画面放大采样，
- * 结果几乎一样，却省掉每个像素两次完整的场景计算（2880×1800 下约 8 毫秒）。一层画一次。
+ * 雾的预渲染：雾里的两层窗外（模糊半径 uFogB = 0.03、0.09 屏高）本来就很糊，在 1/4、1/8 分辨率下算好、主画面放大采样，
+ * 结果几乎一样，却省掉每个像素两次完整的场景计算（2880×1800 下约 8 毫秒）。一层画一次（nebbiaFogGl.ts）。
  */
 export const NEBBIA_FOG_FS = /* glsl */ `#version 300 es
 ${SCENE_UNIFORMS}
@@ -48,6 +48,16 @@ void main() {
   outColor = vec4(r.rgb * r.a, r.a);
 }`;
 
+// 主画面里只跟像素位置有关的三个噪声：R 擦痕边细噪声、G 起雾的大块噪声、B 闪点（静态噪声纹理里存的也是它）
+const STATIC_NOISE = /* glsl */ `
+vec3 staticNoise(vec2 px) { return vec3(vnoise(px / 6.0) * 0.6 + vnoise(px / 2.2) * 0.4, vnoise(px / 55.0 + 3.1), vnoise(px / 1.6)); }`;
+
+/** 静态噪声纹理（nebbiaNoiseTex.ts）：改尺寸时算一次。纹理的第 j 行存 px.y = j + 0.5，主画面按 px / uRes 取样，正好落在格子中心。 */
+export const NEBBIA_NOISE_FS = /* glsl */ `#version 300 es
+${SCENE_UNIFORMS}
+${STATIC_NOISE}
+void main() { outColor = vec4(staticNoise(gl_FragCoord.xy), 1.0); }`;
+
 const MAIN_FS = (fogTex: boolean) => /* glsl */ `#version 300 es
 #define NEBBIA_FOG_TEX ${fogTex ? 1 : 0}
 ${SCENE_UNIFORMS}
@@ -57,6 +67,9 @@ uniform sampler2D uBreath; uniform bool uBreathOn; uniform float uBreathThick;
 uniform vec2 uGlassShift; uniform float uMist, uEdge, uRefract, uGlint;
 // 预渲染好的两层雾（NEBBIA_FOG_TEX 为 0 时主画面自己算：不支持浮点渲染目标时）
 uniform sampler2D uFogBlur, uFogGlow;
+// 静态噪声纹理（nebbiaNoiseTex.ts）：按 px 取样；uNoiseOn 为假（还没算好、画布超过纹理尺寸上限）时现算
+uniform bool uNoiseOn; uniform sampler2D uNoise;
+${STATIC_NOISE}
 void main() {
   // 颠簸：玻璃上的东西（雾、擦痕、水珠）跟车身一起晃，窗外晃得更多
   vec2 gv = vUv + uGlassShift, sv = vUv + uSceneShift;
@@ -65,8 +78,8 @@ void main() {
   vec2 q = vec2(sv.x * aspect, sv.y);
   float m = texture(uMask, gv).r;
   // 擦痕边缘：细噪声让边缘毛糙，大块噪声让重新起雾时一片片回来
-  float fine = vnoise(px / 6.0) * 0.6 + vnoise(px / 2.2) * 0.4;
-  float blotch = vnoise(px / 55.0 + 3.1);
+  vec3 nz = uNoiseOn ? texture(uNoise, px / uRes).rgb : staticNoise(px);
+  float fine = nz.r, blotch = nz.g;
   float th = 0.3 + (fine - 0.5) * 0.22 * uEdge + (blotch - 0.5) * 0.12;
   float clear = smoothstep(th - 0.05, th + 0.06, m);
   // 哈气：就是这一片的雾一下变密（更细密的一层水汽凝上来），不是另盖一层。边由大块噪声揉散成一卷卷的、
@@ -101,7 +114,7 @@ void main() {
   // 聚光灯照到玻璃上：雾里的小水滴把光散开，字周围一圈雾被照成强调色
   vec2 sd = q - uSpotTgt;
   fog += uLa * uSpotI * exp(-dot(sd, sd) / (uSpotR * uSpotR * 2.2)) * (0.18 + 0.4 * dens);
-  fog += smoothstep(0.78, 0.98, vnoise(px / 1.6)) * 0.05 * dens;
+  fog += smoothstep(0.78, 0.98, nz.b) * 0.05 * dens;
   // 水珠纹理：擦痕边 / 下淌的水珠 rd，雾上的凝结水珠 fd（擦开的地方没有）
   vec4 rd = texture(uDrop, gv);
   vec4 fd = texture(uField, gv) * (1.0 - clear);
