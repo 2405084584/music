@@ -54,7 +54,9 @@
 | 32+ | `src/components/visualizer/colorMix.ts` |
 | 32+ | `src/components/visualizer/definition.ts` |
 | 32+ | `src/components/visualizer/hanabi/types.ts` |
+| 32+ | `src/components/visualizer/machi/engine/materials.ts` |
 | 32+ | `src/components/visualizer/registry.tsx` |
+| 32+ | `src/components/visualizer/tuningDefinition.ts` |
 | 32+ | `src/components/wall/layout.ts` |
 | 32+ | `src/components/wall/wallSlots.ts` |
 | 32+ | `src/library/core/account/account.contract.ts` |
@@ -255,6 +257,7 @@
 - `src/components/visualizer/fume/entry.tsx`
 - `src/components/visualizer/hanabi/entry.tsx`
 - `src/components/visualizer/lumiere/entry.tsx`
+- `src/components/visualizer/machi/entry.tsx`
 - `src/components/visualizer/monet/entry.tsx`
 - `src/components/visualizer/nebbia/entry.tsx`
 - `src/components/visualizer/partita/entry.tsx`
@@ -279,6 +282,7 @@
 - `src/components/visualizer/fume/tuning.ts`
 - `src/components/visualizer/hanabi/tuning.ts`
 - `src/components/visualizer/lumiere/tuning.ts`
+- `src/components/visualizer/machi/tuning.ts`
 - `src/components/visualizer/monet/tuning.ts`
 - `src/components/visualizer/nebbia/tuning.ts`
 - `src/components/visualizer/partita/tuning.ts`
@@ -303,6 +307,7 @@
 - `src/components/visualizer/fume/tuning.ts`
 - `src/components/visualizer/hanabi/tuning.ts`
 - `src/components/visualizer/lumiere/tuning.ts`
+- `src/components/visualizer/machi/tuning.ts`
 - `src/components/visualizer/monet/tuning.ts`
 - `src/components/visualizer/nebbia/tuning.ts`
 - `src/components/visualizer/partita/tuning.ts`
