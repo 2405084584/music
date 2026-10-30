@@ -8,6 +8,12 @@ import { BEAT_EFFECT_IDS } from '../../../services/beatFx/beatEffects';
 
 const VisualizerNebbia = React.lazy(() => import('./VisualizerNebbia'));
 
+// src/components/visualizer/nebbia/entry.tsx
+// Registers 雾笺 (Nebbia): writing lyrics with a fingertip on the fogged-up window of a bus on a rainy night.
+// Each character is written stroke by stroke in its stroke order and wipes the fog clear onto the city
+// outside; beads gather along the wipe, drops run down, the fog creeps back. Raindrops hit the glass with
+// the vocal, and two spotlights from the street follow the character being sung.
+
 // 播放页的两个小按钮按这几组常用搭配轮换（设置里可以随意组合；不是其中哪一组时显示「自定义」）
 const APPEAR_PRESETS: { appear: NebbiaTuning['appear']; labelKey: string }[] = [
     { appear: ['write', 'fade'], labelKey: 'options.nebbiaAppearAuto' },
@@ -25,11 +31,6 @@ const presetIndex = (presets: { labelKey: string }[], pick: (i: number) => reado
     presets.findIndex((_, i) => pick(i).join() === on.join())
 );
 
-// src/components/visualizer/nebbia/entry.tsx
-// Registers 雾笺 (Nebbia): writing lyrics with a fingertip on the fogged-up window of a bus on a rainy night.
-// Each character is written stroke by stroke in its stroke order and wipes the fog clear onto the city
-// outside; beads gather along the wipe, drops run down, the fog creeps back. Raindrops hit the glass with
-// the vocal, and two spotlights from the street follow the character being sung.
 export default defineVisualizer({
     mode: 'nebbia',
     order: 29,

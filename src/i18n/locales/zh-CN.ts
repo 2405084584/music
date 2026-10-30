@@ -2803,6 +2803,8 @@ export default {
     "nebbiaLayoutsHint": "每句在打开的构图里挑最合适的一种；实在放不下的长句仍按三行摆。",
     "nebbiaJitter": "手写歪斜",
     "nebbiaWarp": "手写变形",
+    "nebbiaCredits": "片尾写曲名和歌手",
+    "nebbiaCreditsHint": "最后一句唱完后，在玻璃正中手写出曲名，下面写歌手，一直留到歌曲结束。",
     "nebbiaLayout_ribbon": "横条",
     "nebbiaLayout_lines2": "两行错落",
     "nebbiaLayout_lines3": "三行错落",

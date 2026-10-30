@@ -2803,6 +2803,8 @@ export default {
     "nebbiaLayoutsHint": "Mỗi câu chọn bố cục phù hợp nhất trong các bố cục đang bật; câu quá dài vẫn xếp ba dòng.",
     "nebbiaJitter": "Độ nghiêng nét tay",
     "nebbiaWarp": "Độ biến dạng nét tay",
+    "nebbiaCredits": "Viết tên bài ở cuối",
+    "nebbiaCreditsHint": "Sau câu cuối, tên bài hát được viết giữa kính, tên nghệ sĩ bên dưới, và giữ đến hết bài.",
     "nebbiaLayout_ribbon": "Dải ngang",
     "nebbiaLayout_lines2": "Hai dòng so le",
     "nebbiaLayout_lines3": "Ba dòng so le",

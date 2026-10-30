@@ -40,6 +40,7 @@ export const normalizeNebbiaTuning = (stored: unknown): NebbiaTuning => {
         appear: subsetOf(NEBBIA_APPEAR_STYLES, appear, base.appear),
         fade: subsetOf(NEBBIA_FADE_STYLES, fade, base.fade),
         layouts: subsetOf(NEBBIA_LAYOUTS, values.layouts, base.layouts),
+        credits: typeof values.credits === 'boolean' ? values.credits : base.credits,
         ...numbers,
     };
 };

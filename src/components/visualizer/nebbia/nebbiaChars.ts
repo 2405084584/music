@@ -24,6 +24,8 @@ export interface NebbiaSourceLine {
     end: number;
     /** 下一句开始的时间，最后一句是 Infinity。 */
     next: number;
+    /** 片尾的曲名、歌手（nebbiaCredits.ts），歌词没有。 */
+    credits?: 'title' | 'artist';
 }
 
 export const ICON_PREFIX = 'icon:';

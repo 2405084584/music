@@ -2764,6 +2764,8 @@ export default {
     "nebbiaLayoutsHint": "Setiap baris memakai komposisi aktif yang paling pas; baris yang terlalu panjang tetap ditata tiga baris.",
     "nebbiaJitter": "Kemiringan tulisan",
     "nebbiaWarp": "Distorsi tulisan",
+    "nebbiaCredits": "Tulis judul di akhir",
+    "nebbiaCreditsHint": "Setelah baris terakhir, judul lagu ditulis di tengah kaca dengan nama artis di bawahnya, dan tetap ada sampai lagu selesai.",
     "nebbiaLayout_ribbon": "Pita",
     "nebbiaLayout_lines2": "Dua baris berselang",
     "nebbiaLayout_lines3": "Tiga baris berselang",

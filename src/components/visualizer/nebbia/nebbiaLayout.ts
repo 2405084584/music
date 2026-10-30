@@ -47,6 +47,25 @@ export const layoutNebbiaSong = (lines: NebbiaSourceLine[], opts: NebbiaLayoutOp
     const placed: { box: Box; until: number; fogAt: number; linger: number }[] = [];
     const recent: string[] = [];
     let prev: Candidate | null = null;
+    // 片尾：曲名横着写在正中偏上，放不下就分两行；歌手小一半写在曲名下面
+    let titleBox: Box | null = null;
+    const creditsCandidate = (ctx: CompositionContext, kind: 'title' | 'artist'): Candidate => {
+        const res = (kind === 'title' ? null : COMPOSITIONS.ribbon(ctx)) ?? pickWide(ctx);
+        const bb = bboxOf(res.items);
+        const cap = kind === 'title' ? Smax * 1.15 : Smax * 0.55;
+        const S = Math.min(cap, (W - mx * 2) * 0.8 / bb.w, H * 0.32 / bb.h);
+        const bw = bb.w * S, bh = bb.h * S;
+        const cy = kind === 'title' || !titleBox ? H * 0.42 : titleBox.y1 + bh / 2 + S * 0.6;
+        const box = { x0: W / 2 - bw / 2, x1: W / 2 + bw / 2, y0: cy - bh / 2, y1: cy + bh / 2 };
+        if (kind === 'title') titleBox = box;
+        return { score: 0, name: 'ribbon', items: res.items, bb, S, cx: W / 2, cy, box };
+    };
+    // 曲名：一行写得下（字不小于最小字号）就一行，否则两行
+    const pickWide = (ctx: CompositionContext) => {
+        const one = COMPOSITIONS.ribbon(ctx)!, bb = bboxOf(one.items);
+        const fits = Math.min(Smax * 1.15, (W - mx * 2) * 0.8 / bb.w) >= Smin;
+        return (fits ? null : COMPOSITIONS.lines2(ctx)) ?? one;
+    };
     return lines.map((line, li) => {
         const { chars } = line;
         const rnd = createVisualizerRng((hashVisualizerSeed(chars.map(c => c.ch).join('')) + li * 7919) >>> 0);
@@ -64,8 +83,10 @@ export const layoutNebbiaSong = (lines: NebbiaSourceLine[], opts: NebbiaLayoutOp
                 : line.t <= p.fogAt ? 1 : 0.6 + 0.4 * clamp((p.until - line.t) / Math.max(1e-3, p.until - p.fogAt)),
         }));
 
-        let best: Candidate | null = null;
-        for (const maxBlocks of [5, 7]) {
+        let best: Candidate | null = line.credits
+            ? creditsCandidate({ blocks: makeBlocks(chars, words, words.map(() => 'support' as const), ROLE_SCALE, 9), h: 0, chars }, line.credits)
+            : null;
+        if (!best) for (const maxBlocks of [5, 7]) {
             const blocks = makeBlocks(chars, words, roles, RS, maxBlocks);
             const ctx: CompositionContext = { blocks, h: Math.max(0, blocks.findIndex(b => b.role === 'hero')), chars };
             for (const name of Object.keys(COMPOSITIONS)) {

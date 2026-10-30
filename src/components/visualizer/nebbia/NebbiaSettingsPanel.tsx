@@ -16,7 +16,7 @@ import {
 } from './types';
 
 // src/components/visualizer/nebbia/NebbiaSettingsPanel.tsx
-// 雾笺的设置：雾上写字（笔画、手写歪斜和变形、雾），字怎么出现、怎么消失、一句怎么构图（每种一个开关，开几种用几种），
+// 雾笺的设置：雾上写字（笔画、手写歪斜和变形、雾、片尾写曲名），字怎么出现、怎么消失、一句怎么构图（每种一个开关，开几种用几种），
 // 窗外（车、霓虹、聚光灯、雨点、画质）。用设置窗口的共用控件画成几组。
 
 export const NEBBIA_APPEAR_LABEL_KEYS: Record<NebbiaAppearStyle, string> = {
@@ -107,7 +107,15 @@ const NebbiaSettingsPanel: React.FC<VisualizerSettingsPanelProps<NebbiaTuning>> 
 
     return (
         <>
-            <Group def={WRITING_GROUP}>{sliders(WRITING_SLIDERS)}</Group>
+            <Group def={WRITING_GROUP}>
+                {sliders(WRITING_SLIDERS)}
+                <ToggleRow
+                    label={t('options.nebbiaCredits')}
+                    note={t('options.nebbiaCreditsHint')}
+                    checked={resolved.credits}
+                    onChange={credits => onTuningChange({ credits })}
+                />
+            </Group>
             <Group def={APPEAR_GROUP} foot={t('options.nebbiaAppearHint')}>
                 {toggles(NEBBIA_APPEAR_STYLES, resolved.appear, NEBBIA_APPEAR_LABEL_KEYS, appear => ({ appear }))}
             </Group>

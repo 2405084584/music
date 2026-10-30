@@ -2803,6 +2803,8 @@ export default {
     "nebbiaLayoutsHint": "Each line takes the best fit among the compositions that are on; a line too long for any still goes in three rows.",
     "nebbiaJitter": "Handwriting tilt",
     "nebbiaWarp": "Handwriting warp",
+    "nebbiaCredits": "Write the title at the end",
+    "nebbiaCreditsHint": "After the last line, the song title is written in the middle of the glass with the artist below, and stays until the song ends.",
     "nebbiaLayout_ribbon": "Ribbon",
     "nebbiaLayout_lines2": "Two staggered rows",
     "nebbiaLayout_lines3": "Three staggered rows",

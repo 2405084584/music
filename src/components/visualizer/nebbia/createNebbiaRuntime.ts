@@ -2,6 +2,7 @@ import type { Theme } from '../../../types';
 import { loadLucideIcons, resolveLucideIconNames } from '../../../services/lucideIconResolver';
 import { resolveThemeFontStack, resolveThemeFontWeight } from '../../../utils/fontStacks';
 import { buildNebbiaLines, collectEmojiIcons, NEBBIA_DEFAULT_DOODLES } from './nebbiaChars';
+import { appendNebbiaCredits } from './nebbiaCredits';
 import { NEBBIA_FIXED } from './nebbiaConstants';
 import { NebbiaGlassMotion } from './nebbiaDrops';
 import { NebbiaGl } from './nebbiaGl';
@@ -25,7 +26,7 @@ import { NebbiaSceneClock } from './nebbiaSceneClock';
 // 静态模式照常跟着歌词写字，窗外按车速匀速走，但不颠簸、没有小雨点。
 
 // 改了要重排整首的 tuning 项
-const LAYOUT_KEYS: (keyof NebbiaTuning)[] = ['appear', 'fade', 'layouts', 'jitter', 'warp', 'hold', 'refog', 'writeSpeed', 'doodle'];
+const LAYOUT_KEYS: (keyof NebbiaTuning)[] = ['appear', 'fade', 'layouts', 'credits', 'jitter', 'warp', 'hold', 'refog', 'writeSpeed', 'doodle'];
 // 开关组是数组，每次合并都是新的一份：按内容比
 const sameValue = (a: unknown, b: unknown) => (Array.isArray(a) && Array.isArray(b) ? a.join() === b.join() : a === b);
 
@@ -64,6 +65,8 @@ export class NebbiaRuntime {
     constructor(private readonly input: NebbiaRuntimeInput, theme: Theme, tuning: NebbiaTuning) {
         this.theme = theme;
         this.tuning = tuning;
+        // setTuning 只在 tuning 变了才调：上下文恢复后重建的运行时要自己带上颠簸强度
+        this.motion.bump = tuning.bump;
         this.canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
         this.glyphs = new NebbiaGlyphCache(resolveThemeFontStack(theme), resolveThemeFontWeight(theme, 600));
         input.host.appendChild(this.canvas);
@@ -190,12 +193,12 @@ export class NebbiaRuntime {
     // 换歌、改排版相关的设置、换尺寸时重排整首；图标先加载好（图标字形要用 lucide 的节点）
     private rebuild() {
         const token = ++this.buildToken;
-        const { lines, seed } = this.song;
+        const { lines, seed, title, artist } = this.song;
         const themeIcons = resolveLucideIconNames(this.theme.lyricsIcons);
         const doodles = themeIcons.length ? themeIcons : NEBBIA_DEFAULT_DOODLES;
         void loadLucideIcons([...doodles, ...collectEmojiIcons(lines)]).catch(() => undefined).then(() => {
             if (token !== this.buildToken || this.dead || !this.W) return;
-            const source = this.showText ? buildNebbiaLines(lines, seed, this.tuning.doodle, doodles) : [];
+            const source = this.showText ? appendNebbiaCredits(buildNebbiaLines(lines, seed, this.tuning.doodle, doodles), this.tuning.credits ? title : null, artist) : [];
             this.laid = buildNebbiaScene(source, this.glyphs, this.tuning, { W: this.W, H: this.H, fontScale: this.fontScale }, seed);
             this.hits = new NebbiaHits(hashVisualizerSeed(String(seed)));
             this.words = source.map(l => l.words);

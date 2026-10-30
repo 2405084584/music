@@ -23,7 +23,7 @@ type Props = VisualizerSharedProps & { nebbiaTuning?: NebbiaTuning };
 const VisualizerNebbia: React.FC<Props> = (props) => {
     const {
         currentTime, currentLineIndex, lines, theme, audioPower, audioBands,
-        showText = true, lyricsFontScale = 1, staticMode = false, paused = false, seed = 'nebbia',
+        showText = true, lyricsFontScale = 1, staticMode = false, paused = false, seed = 'nebbia', songTitle, songArtist,
         isPlayerChromeHidden = false, hideTranslationSubtitle = false, showSubtitleTranslation = true,
         subtitleContentMode, subtitleTheme, subtitleFontScale, subtitleOverlayOpacity, subtitleOverlayBackground, subtitleUpcomingLyricsBlur,
         nebbiaTuning = DEFAULT_NEBBIA_TUNING,
@@ -39,7 +39,10 @@ const VisualizerNebbia: React.FC<Props> = (props) => {
     // 真正在画的歌：切歌时滞后于 props，免得对着还没到的歌词排版（songHandover.ts）
     const committed = useVisualizerSongCommit({ seed, lines, currentTime, readyGraceMs: 3000 });
     const committedLines = committed.isInstrumental ? EMPTY_LINES : committed.lines;
-    const song = useMemo(() => ({ lines: committedLines, seed: committed.seed ?? 'nebbia' }), [committedLines, committed.seed]);
+    const song = useMemo(
+        () => ({ lines: committedLines, seed: committed.seed ?? 'nebbia', title: songTitle, artist: songArtist }),
+        [committedLines, committed.seed, songTitle, songArtist],
+    );
 
     const latest = useRef({ theme, tuning: nebbiaTuning, song, lyricsFontScale, showText, paused, staticMode, firstFrameDrawn });
     latest.current = { theme, tuning: nebbiaTuning, song, lyricsFontScale, showText, paused, staticMode, firstFrameDrawn };

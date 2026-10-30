@@ -27,6 +27,8 @@ export interface NebbiaTuning {
     fade: NebbiaFadeStyle[];
     /** 打开的构图，至少一种。 */
     layouts: NebbiaLayout[];
+    /** 最后一句唱完后在玻璃上写出曲名和歌手（nebbiaCredits.ts）。 */
+    credits: boolean;
     /** 手写歪斜：整字转动、上下错落、整行倾斜。 */
     jitter: number;
     /** 手写变形：字形斜切胖瘦、笔画长短偏移、手抖。 */
@@ -87,6 +89,7 @@ export const DEFAULT_NEBBIA_TUNING: NebbiaTuning = {
     appear: ['write', 'fade'],
     fade: ['fog'],
     layouts: [...NEBBIA_LAYOUTS],
+    credits: true,
     jitter: 0.6,
     warp: 0.6,
     mist: 0.75,
@@ -105,8 +108,8 @@ export const DEFAULT_NEBBIA_TUNING: NebbiaTuning = {
     resolution: 1,
 };
 
-/** 运行时（createNebbiaRuntime.ts）的歌：歌词和随机种子。 */
-export interface NebbiaSong { lines: Line[]; seed: string | number }
+/** 运行时（createNebbiaRuntime.ts）的歌：歌词、随机种子，片尾写的曲名和歌手。 */
+export interface NebbiaSong { lines: Line[]; seed: string | number; title?: string | null; artist?: string | null }
 /** React 外壳交给运行时的宿主、两个每帧读的 MotionValue 和回调。 */
 export interface NebbiaRuntimeInput {
     host: HTMLElement;

@@ -119,6 +119,18 @@ const applyAppear = (line: LaidLine, tuning: NebbiaTuning, idx: number, seed: nu
     for (const c of line.chars) c.appearDur = fade ? clamp(c.d * 3, 0.35, 1.2) : 0;
 };
 
+/** 片尾的歌手等曲名写完再写：整句的书写时刻往后挪到曲名最后一个字写完后 0.4 秒。 */
+const alignCredits = (laid: LaidLine[], source: NebbiaSourceLine[]) => {
+    const ti = source.findIndex(l => l.credits === 'title'), ai = source.findIndex(l => l.credits === 'artist');
+    if (ti < 0 || ai < 0) return;
+    const written = laid[ti].chars.filter(c => c.glyph);
+    const last = written[written.length - 1];
+    if (!last) return;
+    const first = laid[ai].chars.find(c => c.glyph);
+    const shift = first ? Math.max(0, last.wt + last.wd + 0.4 - first.wt) : 0;
+    for (const c of laid[ai].chars) c.wt += shift;
+};
+
 export const lineRect = (line: LaidLine) => {
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, S = 0;
     for (const c of line.chars) if (c.glyph) {
@@ -137,10 +149,14 @@ export const buildNebbiaScene = (
     seed: string | number,
 ): LaidLine[] => {
     const seedHash = hashVisualizerSeed(String(seed));
-    const modes = source.map((_, i) => lineModeOf(tuning.fade, i, seedHash));
-    const fogAt = (i: number) => fogStartOf(source[i].end, source[i].next, tuning.hold);
-    const lingerAt = (i: number) => Math.max(fogAt(i), Math.min(fogAt(i) + LINGER_MAX, (source[i + LINGER_LINES]?.t ?? Infinity) + tuning.hold));
+    const modes = source.map((l, i) => (l.credits ? 'fog' : lineModeOf(tuning.fade, i, seedHash)));
     const fadeOf = (i: number) => tuning.refog + (modes[i] === 'fog' ? 0 : 2.5);
+    // 片尾（nebbiaCredits.ts）：曲名开写时前面的句子已经散得差不多（起雾不晚于开写前 0.6 个起雾用时），片尾两句不起雾
+    const creditsAt = source.find(l => l.credits)?.t ?? Infinity;
+    const beforeCredits = (i: number) => Math.max(source[i].end + 0.5, creditsAt - fadeOf(i) * 0.6);
+    const fogAt = (i: number) => (source[i].credits ? Infinity
+        : Math.min(fogStartOf(source[i].end, source[i].next, tuning.hold), beforeCredits(i)));
+    const lingerAt = (i: number) => Math.max(fogAt(i), Math.min(fogAt(i) + LINGER_MAX, (source[i + LINGER_LINES]?.t ?? Infinity) + tuning.hold, beforeCredits(i)));
     const goneAt = (i: number) => fogAt(i) + fadeOf(i);
     const pos = layoutNebbiaSong(source, {
         W: size.W, H: size.H, jitter: tuning.jitter, layouts: tuning.layouts, fontScale: size.fontScale, visibleUntil: goneAt, fogAt,
@@ -158,12 +174,14 @@ export const buildNebbiaScene = (
         }),
     }));
     laid.forEach((line, li) => applyAppear(line, tuning, li, seedHash));
+    alignCredits(laid, source);
     // 让位：后面第一句和这句重叠、且在这句（多留之后）消失前开始的，记下它开始的时刻。
     // 多留：屏上还空着就晚点起雾，留到让位前 refog 秒（来得及慢慢起雾），不早于原来的时刻。
     // 到让位时还消失不了的（屏上满了），在那句开写前哈一口气把这句盖掉，那句写在白气上
     const rects = laid.map(lineRect);
     const { breathSpread, breathHold } = NEBBIA_FIXED;
     laid.forEach((line, i) => {
+        if (source[i].credits) return;
         const gone = lingerAt(i) + fadeOf(i);
         let by = -1;
         for (let j = i + 1; j < laid.length && laid[j].t < gone; j += 1) {
@@ -171,7 +189,8 @@ export const buildNebbiaScene = (
             if (Math.min(a.x1, b.x1) > Math.max(a.x0, b.x0) && Math.min(a.y1, b.y1) > Math.max(a.y0, b.y0)) { line.yieldAt = laid[j].t; by = j; break; }
         }
         line.fogAt = Math.max(fogAt(i), Math.min(lingerAt(i), line.yieldAt - fadeOf(i)));
-        if (by >= 0 && line.yieldAt < line.fogAt + fadeOf(i)) {
+        // 给片尾让位的不哈气：前面已经在散了，按让位快速起雾就好
+        if (by >= 0 && !source[by].credits && line.yieldAt < line.fogAt + fadeOf(i)) {
             line.breathAt = line.yieldAt - breathSpread - 0.3;
             line.breathUntil = laid[by].end + breathHold;
         }
