@@ -106,6 +106,11 @@ vec4 building(vec2 q, float b, float t, float layer) {
   }
   return res;
 }
+// 从楼群缓存取一层（预乘颜色）：横向按这层的速度（building 里的 0.02、0.035）平移，环形取样
+vec4 bldAt(sampler2D s, vec2 q, float t, float speed, vec3 g) {
+  // 没有 mipmap；在分支里取样，用 textureLod 不依赖导数
+  return textureLod(s, vec2((q.x + t * speed) / g.z, (q.y - g.x) / (g.y - g.x)), 0.0);
+}
 // 主题色霓虹（照雨湖的远处灯光）：楼群之间密密的彩色小散景，偶尔一大团霓虹带一圈很大的光晕。
 // 颜色取这首歌的三个灯光色；移动速度介于楼群和路灯之间。倒影也用它。
 vec3 neonLights(vec2 q, float b, float t) {
@@ -161,10 +166,22 @@ vec3 scene(vec2 q, float b) {
   col += mix(uLa, SODIUM, 0.4) * 0.14 * exp(-abs(q.y - HZ + 0.12) * 6.0);
   // 楼群：远近两层，远层矮、淡、窗小；近层高、细节多
   float aa = max(b, 0.0015), c0;
-  vec4 bf = building(q, b, t, 0.0);
-  col = mix(col, bf.rgb, bf.a);
-  vec4 bn = building(q, b, t, 1.0);
-  col = mix(col, bn.rgb, bn.a);
+  // 楼群走缓存（nebbiaBuildingCache.ts）。水珠透镜（b = 0.006）折射得远，会取到缓存范围外面，照旧现算（只占几颗水珠的面积）；
+  // 缓存还没画好的那档也现算
+  bool cached = b < 0.002 ? uBldOn.x : (b > 0.05 ? uBldOn.z : (b > 0.02 ? uBldOn.y : false));
+  if (cached) {
+    vec4 bf, bn;
+    if (b > 0.05) { bf = bldAt(uBld4, q, t, 0.02, uBldGeo[2]); bn = bldAt(uBld5, q, t, 0.035, uBldGeo[2]); }
+    else if (b > 0.02) { bf = bldAt(uBld2, q, t, 0.02, uBldGeo[1]); bn = bldAt(uBld3, q, t, 0.035, uBldGeo[1]); }
+    else { bf = bldAt(uBld0, q, t, 0.02, uBldGeo[0]); bn = bldAt(uBld1, q, t, 0.035, uBldGeo[0]); }
+    col = col * (1.0 - bf.a) + bf.rgb;
+    col = col * (1.0 - bn.a) + bn.rgb;
+  } else {
+    vec4 bf = building(q, b, t, 0.0);
+    col = mix(col, bf.rgb, bf.a);
+    vec4 bn = building(q, b, t, 1.0);
+    col = mix(col, bn.rgb, bn.a);
+  }
   // 主题色霓虹压在楼群前面；天边再铺一层很宽的主题色辉光
   col += (neonLights(q, b, t) + uLa * 0.12 * exp(-abs(q.y - HZ + 0.1) * 5.0)) * uNeon;
   col += lampsSigns(q, b, t);

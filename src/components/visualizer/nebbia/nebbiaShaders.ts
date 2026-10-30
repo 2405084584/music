@@ -2,7 +2,7 @@ import { NEBBIA_SCENE_GLSL } from './nebbiaSceneGlsl';
 
 // src/components/visualizer/nebbia/nebbiaShaders.ts
 // 雾笺的着色器：全屏四边形的主着色器（uPass 0 = 雾的预渲染，两层模糊的窗外写进两张 1/4 分辨率的浮点纹理；
-// 1 = 主画面：雾、擦痕、水珠折射合成，照搬 raindrop-fx 的 compose.glsl），和画水珠精灵的实例化着色器。
+// 1 = 主画面：雾、擦痕、水珠折射合成，照搬 raindrop-fx 的 compose.glsl；2 = 补画楼群缓存），和画水珠精灵的实例化着色器。
 
 export const NEBBIA_VS = /* glsl */ `#version 300 es
 in vec2 aPos; out vec2 vUv;
@@ -15,13 +15,25 @@ uniform sampler2D uMask, uDrop, uField;
 uniform sampler2D uBreath; uniform bool uBreathOn; uniform float uBreathThick;
 uniform vec2 uRes, uGlassShift, uSceneShift; uniform float uTime, uMist, uEdge, uRefract, uBus, uGlint, uNeon;
 uniform vec3 uSky0, uSky1, uLa, uLb, uLc;
-// uPass 0：雾的预渲染；1：主画面。uFogTex 为假时主画面自己算（不支持浮点渲染目标时）
+// uPass 0：雾的预渲染；1：主画面；2：往楼群缓存里补画。uFogTex 为假时主画面自己算（不支持浮点渲染目标时）
 uniform int uPass; uniform bool uFogTex; uniform sampler2D uFogBlur, uFogGlow;
 // 聚光灯：光源（远处楼底）、照到玻璃上的点、光斑半径，都在 scene 坐标；uSpotI 强度
 uniform vec2 uSpotSrc, uSpotSrc2, uSpotTgt; uniform float uSpotR, uSpotI;
+// 楼群缓存（nebbiaBuildingCache.ts）：三档模糊 × 远近两层，预乘颜色；uBldOn 每档画好了没有，uBldGeo 每档 (y0, y1, 横向周期)。
+// uPass 2 往缓存里补画一段：uFillX0 起的一个周期，uFillGeo 同 uBldGeo，uFillSize 缓存的像素尺寸
+uniform bvec3 uBldOn; uniform sampler2D uBld0, uBld1, uBld2, uBld3, uBld4, uBld5; uniform vec3 uBldGeo[3];
+uniform float uFillB, uFillLayer, uFillX0; uniform vec3 uFillGeo; uniform vec2 uFillSize;
 in vec2 vUv; layout(location = 0) out vec4 outColor; layout(location = 1) out vec4 outGlow;
 ${NEBBIA_SCENE_GLSL}
 void main() {
+  // 楼群缓存的一格像素对应的世界横坐标：落在 [uFillX0, uFillX0 + 周期) 里的那一个
+  if (uPass == 2) {
+    float span = uFillGeo.z;
+    float xw = uFillX0 + fract((gl_FragCoord.x / uFillSize.x * span - uFillX0) / span) * span;
+    vec4 r = building(vec2(xw, mix(uFillGeo.x, uFillGeo.y, gl_FragCoord.y / uFillSize.y)), uFillB, 0.0, uFillLayer);
+    outColor = vec4(r.rgb * r.a, r.a);
+    return;
+  }
   // 雾里的两层窗外（模糊半径 0.03、0.09 屏高）本来就很糊，在 1/4 分辨率下算好、主画面放大采样，结果几乎一样，
   // 却省掉每个像素两次完整的场景计算（2880×1800 下约 8 毫秒）
   if (uPass == 0) {

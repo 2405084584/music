@@ -2,10 +2,11 @@ import { FOG_DIV, NEBBIA_FIXED } from './nebbiaConstants';
 import raindropSpriteUrl from './nebbiaRaindrop.png';
 import { NEBBIA_FS, NEBBIA_SPRITE_FS, NEBBIA_SPRITE_VS, NEBBIA_VS } from './nebbiaShaders';
 import { link, makeTex, type NebbiaUniforms, type Tex } from './nebbiaGlUtils';
+import { NebbiaBuildingCache } from './nebbiaBuildingCache';
 
 // src/components/visualizer/nebbia/nebbiaGl.ts
 // 雾笺的 WebGL2 部分：一个全屏着色器，四张玻璃上的纹理（擦痕遮罩、擦痕边 / 雨点的水珠、雾上的凝结水珠、哈气的白气），
-// 两张雾的预渲染（RGBA16F，1/4 画布分辨率，一个 FBO 两个颜色附件一次画完；不支持浮点渲染目标时主画面自己算）。
+// 两张雾的预渲染（RGBA16F，1/4 画布分辨率，一个 FBO 两个颜色附件一次画完；不支持浮点渲染目标时主画面自己算），楼群缓存（nebbiaBuildingCache.ts）。
 // 水珠精灵是 raindrop-fx 1.0.8（MIT，见 nebbiaRaindrop.LICENSE.txt）的 assets/img/raindrop.png。
 
 export class NebbiaGl {
@@ -19,6 +20,7 @@ export class NebbiaGl {
     private readonly uView: WebGLUniformLocation | null;
     private readonly mask: Tex; private readonly drop: Tex; private readonly field: Tex; private readonly sprite: Tex; private readonly breath: Tex;
     private readonly fogTex: Tex[];
+    private readonly bld: NebbiaBuildingCache;
     private fogOK: boolean;
     private fogFb: WebGLFramebuffer | null = null;
     private fogW = 1; private fogH = 1;
@@ -35,7 +37,7 @@ export class NebbiaGl {
         this.prog = link(gl, NEBBIA_VS, NEBBIA_FS);
         this.sprog = link(gl, NEBBIA_SPRITE_VS, NEBBIA_SPRITE_FS);
         gl.useProgram(this.prog);
-        for (const n of ['uRes', 'uTime', 'uMist', 'uEdge', 'uRefract', 'uBus', 'uGlint', 'uNeon', 'uGlassShift', 'uSceneShift', 'uSky0', 'uSky1', 'uLa', 'uLb', 'uLc', 'uPass', 'uFogTex', 'uSpotSrc', 'uSpotSrc2', 'uSpotTgt', 'uSpotR', 'uSpotI', 'uBreathOn', 'uBreathThick']) {
+        for (const n of ['uRes', 'uTime', 'uMist', 'uEdge', 'uRefract', 'uBus', 'uGlint', 'uNeon', 'uGlassShift', 'uSceneShift', 'uSky0', 'uSky1', 'uLa', 'uLb', 'uLc', 'uPass', 'uFogTex', 'uSpotSrc', 'uSpotSrc2', 'uSpotTgt', 'uSpotR', 'uSpotI', 'uBreathOn', 'uBreathThick', 'uBldOn', 'uBldGeo', 'uFillB', 'uFillLayer', 'uFillX0', 'uFillGeo', 'uFillSize']) {
             this.U[n] = gl.getUniformLocation(this.prog, n);
         }
         this.quadVao = gl.createVertexArray()!;
@@ -51,6 +53,7 @@ export class NebbiaGl {
         this.sprite = makeTex(gl, this.prog, 5, null);
         this.fogTex = [makeTex(gl, this.prog, 6, 'uFogBlur'), makeTex(gl, this.prog, 7, 'uFogGlow')];
         this.breath = makeTex(gl, this.prog, 8, 'uBreath');
+        this.bld = new NebbiaBuildingCache(gl, this.prog, 9, this.U);
         gl.uniform1f(this.U.uBreathThick, NEBBIA_FIXED.breathThick);
         this.fogOK = !!gl.getExtension('EXT_color_buffer_float');
         gl.uniform1i(this.U.uFogTex, this.fogOK ? 1 : 0);
@@ -102,6 +105,7 @@ export class NebbiaGl {
         gl.useProgram(this.prog);
         gl.uniform3fv(U.uSky0, sky0); gl.uniform3fv(U.uSky1, sky1);
         gl.uniform3fv(U.uLa, la); gl.uniform3fv(U.uLb, lb); gl.uniform3fv(U.uLc, lc);
+        this.bld.invalidate();
     }
 
     /** W、H 是 CSS 像素（水珠纹理用这个分辨率），dpr 是画布的像素比。 */
@@ -141,6 +145,7 @@ export class NebbiaGl {
             }
         }
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        this.bld.resize(this.canvas.width, this.canvas.height, Math.max(1, Math.ceil(this.canvas.height / FOG_DIV)));
     }
 
     // 水珠实例画进一张水珠纹理（CSS 分辨率）
@@ -189,6 +194,7 @@ export class NebbiaGl {
         gl.uniform2fv(U.uSpotSrc, u.spotSrc); gl.uniform2fv(U.uSpotSrc2, u.spotSrc2); gl.uniform2fv(U.uSpotTgt, u.spotTgt);
         gl.uniform1f(U.uSpotR, u.spotR); gl.uniform1f(U.uSpotI, u.spotI);
         gl.uniform1i(U.uBreathOn, breath ? 1 : 0);
+        this.bld.update(u.time * u.bus);
         if (this.fogOK && this.fogFb) {
             // 画之前把两张纹理从采样单元上卸下：同一个程序既采样又往里画会被判成反馈环
             for (const tex of this.fogTex) { gl.activeTexture(gl.TEXTURE0 + tex.unit); gl.bindTexture(gl.TEXTURE_2D, null); }
