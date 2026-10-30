@@ -4,6 +4,7 @@ import type { MachiSongContext } from '../../createMachiRuntime';
 import { MachiNobori } from '../../engine/actors/nobori';
 import { resolveMachiCar, type MachiLane } from '../../engine/actors/schedules';
 import { createBaseClippingPlanes, createSoftEllipseTexture, MachiTraffic } from '../../engine/actors/traffic';
+import { machiNeonGroup } from '../../engine/beatFx';
 import { resolveMachiFlicker } from '../../engine/director';
 import { MachiLightCones } from '../../engine/fx/lightCones';
 import { MACHI_REFLECT_LAYER } from '../../engine/fx/reflection';
@@ -293,21 +294,22 @@ class StationScene implements MachiScene {
         const flicker = staticMode ? 1 : resolveMachiFlicker(ambientTime + 1.7, `${frame.seed}:canopy`, 0.4);
         const lampFlicker = staticMode ? 1 : resolveMachiFlicker(ambientTime + 4.2, `${frame.seed}:lamp`, 0.45);
         const lamp = look.streetLamps * (0.75 + 0.25 * lampFlicker);
-        // 霓虹随拍（智能动感模式）：罩棚的灯（连同它投在地上的光斑）跟暖色那一路，旅馆霓虹跟霓虹那一路；地面干时光斑跟鼓点跳。
+        // 霓虹随拍（智能动感模式）：罩棚的灯（连同它投在地上的光斑）跟着小节慢慢涨落；旅馆的霓虹灯管是第三组，照到四周的
+        // 霓虹光跟三组的平均；地面干时光斑跟鼓点跳。
         const { beat } = frame;
         const canopyLevel = (0.85 + 0.15 * flicker) * (1 + 0.08 * chorus) * look.artificial * beat.warm;
-        const motelNeon = look.artificial * (0.8 + 0.2 * frame.flicker) * beat.neon;
+        const motelNeon = look.artificial * (0.8 + 0.2 * frame.flicker);
         this.lights.setLevels({
             canopy: canopyLevel,
             lamp,
-            neon: motelNeon,
+            neon: motelNeon * beat.neon,
             screen: (1 - 0.8 * environment.daylight) * (1 + 0.2 * chorus),
             pools: (1 - 0.85 * environment.daylight) * (1 + beat.thump),
         });
         const materials = this.context.materials;
         materials.setGlowLevel('canopyLight', 0.4 + 0.6 * canopyLevel);
         materials.setGlowLevel('lampHead', 0.15 + 0.85 * look.streetLamps);
-        materials.setGlowLevel('motelNeon', motelNeon);
+        materials.setGlowLevel('motelNeon', motelNeon * machiNeonGroup(beat, 2));
         materials.setGlowLevel('marker', 0.5 + 0.5 * look.artificial);
         // 停着的车白天不开灯，夜里出租车的灯亮着（等客）。
         materials.setGlowLevel('carHead', 0.12 + 0.88 * (1 - environment.daylight));

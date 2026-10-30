@@ -6,19 +6,18 @@ import { BEAT_EFFECT_IDS } from '../../../services/beatFx/beatEffects';
 import {
     getBeatEffectStrength,
     getBeatFxHeard,
-    getBeatFxLastBeat,
-    getBeatFxLastDownbeat,
+    getBeatFxEvents,
+    getBeatFxTrackScale,
     isBeatFxReady,
 } from '../../../services/beatFx/beatFxLive';
 import { resolveLucideIconNames } from '../../../services/lucideIconResolver';
-import { beatImpact, downbeatImpact } from '../../../stores/motionSignals';
 import { resolveThemeFontStack, resolveThemeFontWeight } from '../../../utils/fontStacks';
 import {
-    latestMachiBeat,
+    createMachiBeatFrame,
     MACHI_BEAT,
-    MACHI_BEAT_REST,
     machiDrumHitsAt,
     machiRippleWetness,
+    resetMachiBeatFrame,
     resolveMachiDrumRipples,
     resolveMachiNeonPulse,
     resolveMachiScreenFlash,
@@ -72,7 +71,7 @@ import type { MachiCameraView, MachiQuality, MachiSceneId, MachiTuning } from '.
 // 管自己的几何、灯、招牌和会动的东西。换场景只拆旧场景、建新场景，上下文和后处理留着。
 // 自己的 requestAnimationFrame 循环：暂停时只在镜头还在动、颜色还在插值、或外面要求补一帧时出帧，其余时间不跑。
 // 每帧的时间只从 currentTime（歌词）和 MachiClock（氛围）读，不进 React。
-// 智能动感模式（engine/beatFx.ts）：每帧按节拍时钟与鼓点算出霓虹、涟漪、闪拍的量，涟漪交给地面，其余随场景帧交给场景。
+// 智能动感模式（engine/beatFx.ts）：每帧按节拍表与鼓点算出霓虹、涟漪、闪拍的量，涟漪交给地面，其余随场景帧交给场景。
 
 export interface MachiSongContext {
     seed: string | number;
@@ -196,7 +195,7 @@ export class MachiRuntime {
     private readonly scratchColorB = new THREE.Color();
     private lightningTimes: number[] = [];
     /** 智能动感模式这一帧的量（每帧就地改写）与鼓点涟漪的几圈。 */
-    private readonly beat: MachiBeatFrame = { ...MACHI_BEAT_REST };
+    private readonly beat: MachiBeatFrame = createMachiBeatFrame();
     private readonly kickRings = new Float32Array(MACHI_BEAT.ripple.max * 2);
     /** 调试钩子给的鼓点（setDrumHits）。 */
     private debugDrumHits: DrumHits | null = null;
@@ -720,25 +719,23 @@ export class MachiRuntime {
     }
 
     /**
-     * 智能动感模式：霓虹随拍读节拍时钟的包络（时钟已经乘好它的强度）；鼓点效果读听到的这首歌的鼓点，涟漪交给地面。
-     * 静态模式、暂停（停在一下闪拍中间的那帧不留着）、效果关着、拍点 / 鼓点还没有时都是常态值，
+     * 智能动感模式：霓虹随拍读整张节拍表、鼓点效果读这首歌的鼓点，都按听到的时间取；涟漪交给地面。
+     * 静态模式、暂停（停在霓虹或大屏亮到一半的那帧不留着）、效果关着、拍点 / 鼓点还没有时都是常态值，
      * 画面和关掉时一样。
      */
     private stepBeat(songTime: number): MachiBeatFrame {
-        const beat = Object.assign(this.beat, MACHI_BEAT_REST);
+        const beat = resetMachiBeatFrame(this.beat);
         const idle = this.clock.paused;
         const neonStrength = idle ? 0 : getBeatEffectStrength(BEAT_EFFECT_IDS.machiNeonPulse);
-        if (neonStrength > 0 && isBeatFxReady()) {
-            const tone = latestMachiBeat(getBeatFxLastBeat(), getBeatFxLastDownbeat())?.tone;
-            resolveMachiNeonPulse(beatImpact.get(), downbeatImpact.get(), tone, beat);
-        }
         const rippleStrength = idle ? 0 : getBeatEffectStrength(BEAT_EFFECT_IDS.machiDrumRipple);
         const flashStrength = idle ? 0 : getBeatEffectStrength(BEAT_EFFECT_IDS.machiScreenFlash);
+        const heard = getBeatFxHeard();
+        const time = heard.time ?? songTime;
+        if (neonStrength > 0 && isBeatFxReady()) {
+            resolveMachiNeonPulse(getBeatFxEvents(), time, neonStrength, getBeatFxTrackScale(), beat);
+        }
         let hits: DrumHits | null = null;
-        let time = songTime;
         if (rippleStrength > 0 || flashStrength > 0) {
-            const heard = getBeatFxHeard();
-            time = heard.time ?? songTime;
             hits = machiDrumHitsAt(this.debugDrumHits ?? getDrumHits(heard.key), time);
         }
         // 光斑的一跳只在干的地面上（湿的地面上是涟漪）。

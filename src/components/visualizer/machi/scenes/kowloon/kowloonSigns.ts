@@ -4,7 +4,7 @@ import type { Line } from '../../../../../types';
 import { adjustLightnessForContrast } from '../../../../../utils/themeColorMath';
 import { createVisualizerRng } from '../../../visualizerSeedHash';
 import { prepareWordColorMatchers } from '../../../wordColoring';
-import type { MachiBeatFrame } from '../../engine/beatFx';
+import { machiNeonGroup, type MachiBeatFrame } from '../../engine/beatFx';
 import { resolveMachiFlicker, type MachiBoardTarget } from '../../engine/director';
 import { MachiLedStrip } from '../../engine/ledStrip';
 import { MachiLyricScreen } from '../../engine/lyricScreen';
@@ -63,6 +63,18 @@ const BOX_STYLES: [string, string][] = [
 const PX_PER_METER = { fine: 300, shop: 220 } as const;
 const ATLAS_WIDTH = 2048;
 const ATLAS_PAD = 6;
+
+/**
+ * 图集招牌分几个网格（各一个材质）：group 是坏灯管那组（0 稳定，1、2 是两组会坏的灯管），beat 是霓虹随拍轮到的那组。
+ * 稳定的招牌占了大半，按顺序轮流分进三组，免得随拍时整条街一起亮；两组坏灯管各自就是一组。
+ */
+const ATLAS_SLOTS = [
+    { group: 0, beat: 0 },
+    { group: 0, beat: 1 },
+    { group: 0, beat: 2 },
+    { group: 1, beat: 1 },
+    { group: 2, beat: 2 },
+] as const;
 
 interface AtlasEntry {
     placement: KowloonPlacement;
@@ -221,19 +233,26 @@ export class KowloonSigns {
         this.texture = new THREE.CanvasTexture(this.canvas);
         this.texture.colorSpace = THREE.SRGBColorSpace;
         this.texture.anisotropy = 8;
-        this.atlasMaterials = [0, 1, 2].map(groupIndex => {
+        this.atlasMaterials = ATLAS_SLOTS.map(slot => {
             const material = materials.track(new THREE.MeshBasicMaterial({ map: this.texture }));
-            material.name = `machi:glow:neon${groupIndex}`;
+            material.name = `machi:glow:neon${slot.group}-${slot.beat}`;
             return material;
         });
-        this.atlasMaterials.forEach((material, groupIndex) => {
-            const faces = this.entries.filter(entry => entry.group === groupIndex).map(entry => atlasFace(entry.placement, entry.rect, packed.height));
-            if (faces.length === 0) return;
-            const merged = mergeGeometries(faces, false)!;
-            faces.forEach(face => face.dispose());
+        const faces: THREE.BufferGeometry[][] = ATLAS_SLOTS.map(() => []);
+        let steady = 0;
+        this.entries.forEach(entry => {
+            const slot = entry.group === 0 ? steady++ % 3 : ATLAS_SLOTS.findIndex(candidate => candidate.group === entry.group);
+            faces[slot]!.push(atlasFace(entry.placement, entry.rect, packed.height));
+        });
+        this.atlasMaterials.forEach((material, slotIndex) => {
+            const slotFaces = faces[slotIndex]!;
+            if (slotFaces.length === 0) return;
+            const merged = mergeGeometries(slotFaces, false)!;
+            slotFaces.forEach(face => face.dispose());
             this.geometries.push(merged);
             const result = new THREE.Mesh(merged, material);
-            result.name = `Neon/${groupIndex}`;
+            const slot = ATLAS_SLOTS[slotIndex]!;
+            result.name = `Neon/${slot.group}-${slot.beat}`;
             this.group.add(result);
         });
     }
@@ -290,8 +309,8 @@ export class KowloonSigns {
         }
         this.ticker.update({ delta: frame.delta, staticMode: frame.staticMode, speed: 0.8 + 0.4 * chorus, audio: frame.audio });
         // 霓虹：白天也亮着，只是被日光压下去；两组坏灯管时不时闪一阵，偶尔整个灭掉。
-        // 霓虹随拍（智能动感模式）：招牌每拍亮一下（坏灯管灭着的时候照样灭着）。
-        const neon = Math.pow(frame.artificial, 1.4) * (1 + 0.1 * chorus) * frame.beat.neon;
+        // 霓虹随拍（智能动感模式）：招牌按 ATLAS_SLOTS 分在三组里轮流慢慢亮起（坏灯管灭着的时候照样灭着）。
+        const neon = Math.pow(frame.artificial, 1.4) * (1 + 0.1 * chorus);
         const steady = neon * (0.93 + 0.07 * frame.flicker);
         const broken = (salt: string, offset: number) => {
             if (frame.staticMode) return neon;
@@ -299,7 +318,10 @@ export class KowloonSigns {
             return neon * (flicker < 1 ? 0.12 + 0.3 * (flicker - 0.5) : 1);
         };
         const levels = [steady, broken('neonA', 1.3), broken('neonB', 3.7)];
-        this.atlasMaterials.forEach((material, index) => material.color.setScalar(levels[index]!));
+        this.atlasMaterials.forEach((material, index) => {
+            const slot = ATLAS_SLOTS[index]!;
+            material.color.setScalar(levels[slot.group]! * machiNeonGroup(frame.beat, slot.beat));
+        });
         this.hologram.update({
             time: frame.ambientTime,
             delta: frame.delta,

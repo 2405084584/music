@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mixHexColors } from '../../../../../utils/themeColorMath';
 import { createVisualizerRng } from '../../../visualizerSeedHash';
 import type { MachiSongContext } from '../../createMachiRuntime';
+import { machiNeonGroup } from '../../engine/beatFx';
 import { resolveMachiFlicker } from '../../engine/director';
 import { MachiLightCones } from '../../engine/fx/lightCones';
 import { MACHI_REFLECT_LAYER } from '../../engine/fx/reflection';
@@ -256,15 +257,15 @@ class KowloonScene implements MachiScene {
         const lampFlicker = staticMode ? 1 : resolveMachiFlicker(ambientTime + 4.2, `${frame.seed}:lamp`, 0.45);
         const tubeFlicker = staticMode ? 1 : resolveMachiFlicker(ambientTime + 0.6, `${frame.seed}:tube`, 2.2);
         const lamp = look.streetLamps * (0.75 + 0.25 * lampFlicker);
-        // 霓虹随拍（智能动感模式）：店里的灯（连同它投在地上的光斑）、亮窗跟暖色那一路，霓虹灯带与招牌跟霓虹那一路；
-        // 地面干时光斑跟鼓点跳（城寨的环境光按光斑的亮度走，也跟着跳）。
+        // 霓虹随拍（智能动感模式）：店里的灯（连同它投在地上的光斑）、亮窗跟着小节慢慢涨落；粉、青两条霓虹灯带是第二、三组，
+        // 照到四周的霓虹光与雾里的灯晕跟三组的平均；地面干时光斑跟鼓点跳（城寨的环境光按光斑的亮度走，也跟着跳）。
         const { beat } = frame;
         const artificial = look.artificial * beat.warm;
-        const neon = (0.25 + 0.75 * night) * (0.85 + 0.15 * frame.flicker) * beat.neon;
+        const neon = (0.25 + 0.75 * night) * (0.85 + 0.15 * frame.flicker);
         this.lights.setLevels({
             bar: artificial * (1 + 0.1 * chorus),
             screen: (1 - 0.8 * daylight) * (1 + 0.2 * chorus),
-            neon,
+            neon: neon * beat.neon,
             holo: 1 - 0.85 * daylight,
             stall: 0.3 + 0.7 * look.streetLamps,
             lamp,
@@ -278,8 +279,8 @@ class KowloonScene implements MachiScene {
         materials.setGlowLevel('jukebox', artificial * (0.65 + 0.6 * frame.audio));
         materials.setGlowLevel('shopGlow', artificial);
         materials.setGlowLevel('cafe', artificial);
-        materials.setGlowLevel('stripPink', neon);
-        materials.setGlowLevel('stripCyan', neon);
+        materials.setGlowLevel('stripPink', neon * machiNeonGroup(beat, 1));
+        materials.setGlowLevel('stripCyan', neon * machiNeonGroup(beat, 2));
         materials.setGlowLevel('pharmacy', artificial);
         materials.setGlowLevel('shopWarm', artificial);
         materials.setGlowLevel('tube', artificial * tubeFlicker * tubeFlicker);
@@ -307,7 +308,7 @@ class KowloonScene implements MachiScene {
         const glow = 1 - 0.85 * daylight;
         atmosphere.glowA.copy(this.glowA);
         atmosphere.glowB.copy(this.glowB);
-        atmosphere.glowColorA.copy(this.context.blend.get('neonPink')).multiplyScalar(0.42 * neon * glow);
+        atmosphere.glowColorA.copy(this.context.blend.get('neonPink')).multiplyScalar(0.42 * neon * beat.neon * glow);
         atmosphere.glowColorB.copy(this.context.blend.get('barLight')).multiplyScalar(0.36 * artificial * glow);
     }
 

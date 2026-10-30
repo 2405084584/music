@@ -4,6 +4,7 @@ import type { MachiSongContext } from '../../createMachiRuntime';
 import { resolveMachiCar, type MachiLane } from '../../engine/actors/schedules';
 import { MachiNobori } from '../../engine/actors/nobori';
 import { createBaseClippingPlanes, MachiTraffic } from '../../engine/actors/traffic';
+import { machiNeonGroup } from '../../engine/beatFx';
 import { resolveMachiFlicker } from '../../engine/director';
 import { MachiLightCones } from '../../engine/fx/lightCones';
 import { MACHI_REFLECT_LAYER } from '../../engine/fx/reflection';
@@ -285,11 +286,12 @@ class KonbiniScene implements MachiScene {
             this.doorOpenness = openness;
             this.context.invalidateShadows();
         }
-        // 霓虹随拍（智能动感模式）：店里的灯（连同它投在地上的光斑）跟暖色那一路，霓虹边跟霓虹那一路；地面干时光斑跟鼓点跳。
+        // 霓虹随拍（智能动感模式）：店里的灯（连同它投在地上的光斑）跟着小节慢慢涨落，店招上沿的霓虹边是第二组霓虹；
+        // 地面干时光斑跟鼓点跳。
         const { beat } = frame;
         const interiorLevel = (1 + 0.1 * chorus + 0.06 * this.doorOpenness) * look.artificial * beat.warm;
         this.lights.setLevels({ interior: interiorLevel, street, pools: (1 - 0.85 * environment.daylight) * (1 + beat.thump) });
-        this.context.materials.setGlowLevel('neonRim', (0.75 + 0.25 * frame.flicker) * (1 + 0.4 * chorus) * look.artificial * beat.neon);
+        this.context.materials.setGlowLevel('neonRim', (0.75 + 0.25 * frame.flicker) * (1 + 0.4 * chorus) * look.artificial * machiNeonGroup(beat, 1));
         this.context.materials.setGlowLevel('lampHead', 0.15 + 0.85 * look.streetLamps);
         // 会动的东西：车按氛围时钟，旗随风飘，白气、光柱慢慢流。静态模式下街上没有车，场景是一张定格的画。
         this.traffic.group.visible = !staticMode;
