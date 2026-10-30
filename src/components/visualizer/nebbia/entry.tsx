@@ -1,12 +1,29 @@
 import React from 'react';
-import { cycleValue, QuickControlChip } from '../../shared/QuickControlChip';
+import { QuickControlChip } from '../../shared/QuickControlChip';
 import { defineVisualizer, type VisualizerQuickControlsProps } from '../definition';
 import NebbiaSettingsPanel, { NEBBIA_APPEAR_LABEL_KEYS, NEBBIA_FADE_LABEL_KEYS } from './NebbiaSettingsPanel';
 import nebbiaTuning from './tuning';
-import { NEBBIA_APPEAR_MODES, NEBBIA_FADE_MODES, type NebbiaTuning } from './types';
+import type { NebbiaTuning } from './types';
 import { BEAT_EFFECT_IDS } from '../../../services/beatFx/beatEffects';
 
 const VisualizerNebbia = React.lazy(() => import('./VisualizerNebbia'));
+
+// 播放页的两个小按钮按这几组常用搭配轮换（设置里可以随意组合；不是其中哪一组时显示「自定义」）
+const APPEAR_PRESETS: { appear: NebbiaTuning['appear']; labelKey: string }[] = [
+    { appear: ['write', 'fade'], labelKey: 'options.nebbiaAppearAuto' },
+    { appear: ['write'], labelKey: NEBBIA_APPEAR_LABEL_KEYS.write },
+    { appear: ['fade'], labelKey: NEBBIA_APPEAR_LABEL_KEYS.fade },
+    { appear: ['fade', 'breath'], labelKey: NEBBIA_APPEAR_LABEL_KEYS.breath },
+];
+const FADE_PRESETS: { fade: NebbiaTuning['fade']; labelKey: string }[] = [
+    { fade: ['fog'], labelKey: NEBBIA_FADE_LABEL_KEYS.fog },
+    { fade: ['fingers'], labelKey: NEBBIA_FADE_LABEL_KEYS.fingers },
+    { fade: ['fog', 'fingers'], labelKey: 'options.nebbiaFadeMix' },
+];
+/** 当前搭配在预设里的位置；不在里面是 -1。 */
+const presetIndex = (presets: { labelKey: string }[], pick: (i: number) => readonly string[], on: readonly string[]) => (
+    presets.findIndex((_, i) => pick(i).join() === on.join())
+);
 
 // src/components/visualizer/nebbia/entry.tsx
 // Registers 雾笺 (Nebbia): writing lyrics with a fingertip on the fogged-up window of a bus on a rainy night.
@@ -58,19 +75,21 @@ export default defineVisualizer({
     render: props => <VisualizerNebbia {...props} nebbiaTuning={nebbiaTuning.read(props.visualizerTunings)} />,
     renderSettingsPanel: props => <NebbiaSettingsPanel {...props} />,
     renderQuickControls: ({ tuning, onTuningChange, t }: VisualizerQuickControlsProps<NebbiaTuning>) => {
-        const appear = t(NEBBIA_APPEAR_LABEL_KEYS[tuning.appearMode]);
-        const fade = t(NEBBIA_FADE_LABEL_KEYS[tuning.fadeMode]);
+        const ai = presetIndex(APPEAR_PRESETS, i => APPEAR_PRESETS[i].appear, tuning.appear);
+        const fi = presetIndex(FADE_PRESETS, i => FADE_PRESETS[i].fade, tuning.fade);
+        const appear = t(ai >= 0 ? APPEAR_PRESETS[ai].labelKey : 'options.nebbiaCustom');
+        const fade = t(fi >= 0 ? FADE_PRESETS[fi].labelKey : 'options.nebbiaCustom');
         return (
             <>
                 <QuickControlChip
                     label={appear}
                     title={`${t('options.nebbiaAppear')}: ${appear}`}
-                    onClick={() => onTuningChange({ appearMode: cycleValue(NEBBIA_APPEAR_MODES, tuning.appearMode) })}
+                    onClick={() => onTuningChange({ appear: APPEAR_PRESETS[(ai + 1) % APPEAR_PRESETS.length].appear })}
                 />
                 <QuickControlChip
                     label={fade}
                     title={`${t('options.nebbiaFade')}: ${fade}`}
-                    onClick={() => onTuningChange({ fadeMode: cycleValue(NEBBIA_FADE_MODES, tuning.fadeMode) })}
+                    onClick={() => onTuningChange({ fade: FADE_PRESETS[(fi + 1) % FADE_PRESETS.length].fade })}
                 />
             </>
         );

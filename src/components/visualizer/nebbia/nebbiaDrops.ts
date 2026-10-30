@@ -1,16 +1,24 @@
 import { clamp, NEBBIA_FIXED } from './nebbiaConstants';
+import { NebbiaDropSpring } from './nebbiaDropSpring';
 import { createVisualizerRng } from '../visualizerSeedHash';
 
 // src/components/visualizer/nebbia/nebbiaDrops.ts
 // 玻璃上的水珠和颠簸。水珠照 raindrop-fx 的做法：每颗是一张法线贴图精灵，实例数据 6 个数
 // （中心 x、y，宽、高（CSS 像素），size = 宽/100 决定折射强度，alpha）；精灵只有中间约 1/4 宽能过合成阈值，
-// 所以看得见半径 r 的水珠，四边形是 8r。颠簸：公交车压过坑，车身一震，水珠跟着晃，大水珠被震落、留下水痕。
+// 所以看得见半径 r 的水珠，四边形是 8r。颠簸：公交车压过坑，车身一震，水珠被甩开再弹回来（nebbiaDropSpring.ts），
+// 甩过的地方在雾上擦出一道印子（smears），大水珠被震落、留下水痕。
 
 interface FieldDrop {
     x: number; y: number; w: number; h: number; phase: number;
     fall: null | { t0: number; y0: number; len: number; dur: number; trail: Trail };
+    smear: Smear | null;
 }
 export interface Trail { x: number; y0: number; y1: number; w: number; end: number | null; seed: number }
+/** 水珠被甩过的一段：静止位置 (x, y) 加上甩到的两头 a、b（相对偏移），停下来的时刻 end 起重新起雾。 */
+export interface Smear { x: number; y: number; w: number; ax: number; ay: number; bx: number; by: number; end: number | null; gone?: boolean }
+/** 偏移超过这么多像素才算甩出印子（每颗水珠都算，印子宽跟着水珠大小走）；回到这么近以内算停下。 */
+const SMEAR_MIN = 0.6;
+const SMEAR_REST = 0.3;
 
 /** 风把下淌的水珠往后推：每往下 1 像素横向挪多少。 */
 export const windDrift = (dy: number, busSpeed: number) => -dy * NEBBIA_FIXED.wind * busSpeed;
@@ -19,11 +27,13 @@ export class NebbiaGlassMotion {
     /** 这一帧要画进水珠纹理的实例（擦痕边、下淌、雨点）。 */
     readonly drops: number[] = [];
     readonly trails: Trail[] = [];
+    readonly smears: Smear[] = [];
     private fieldDrops: FieldDrop[] = [];
     private bumps: { t: number; a: number }[] = [];
     private nextBump = 0;
     private rng = createVisualizerRng(777);
     private now = 0;
+    private readonly spring = new NebbiaDropSpring();
     bump = 1;
 
     /** 雾上的凝结水珠：下半部分略多略大。 */
@@ -34,15 +44,17 @@ export class NebbiaGlassMotion {
             const big = rnd() < 0.12;
             const w = big ? 40 + rnd() * 34 : 14 + rnd() ** 1.4 * 22;
             const sp = rnd() * 0.25;
-            this.fieldDrops.push({ x: rnd() * W, y: H * (1 - rnd() ** 1.25), w: w * (1 + sp * 0.5), h: w * (1 + sp), phase: rnd() * 6.28, fall: null });
+            this.fieldDrops.push({ x: rnd() * W, y: H * (1 - rnd() ** 1.25), w: w * (1 + sp * 0.5), h: w * (1 + sp), phase: rnd() * 6.28, fall: null, smear: null });
         }
         this.trails.length = 0;
+        this.smears.length = 0;
     }
 
     /** 每帧开头：清空实例，按时间偶尔颠一下（`randomBumps` 为 false 时颠簸跟鼓点，由外面 trigger）。paused 时不颠。 */
     beginFrame(now: number, paused: boolean, randomBumps = true) {
         this.now = now;
         this.drops.length = 0;
+        this.spring.step(now, paused, t => this.shakeAt(t));
         if (paused || !randomBumps || this.bump <= 0 || NEBBIA_FIXED.bumpRate <= 0) return;
         if (now > this.nextBump) {
             if (this.nextBump > 0) this.trigger(now, 0.5 + this.rng() * 0.7);
@@ -64,25 +76,29 @@ export class NebbiaGlassMotion {
         }
     }
 
-    /** 车身位移（CSS 像素）：先往下一沉，再阻尼回弹，横向带一点。 */
-    shake(): [number, number] {
+    /** 这一帧的车身位移（CSS 像素）。 */
+    shake(): [number, number] { return this.shakeAt(this.now); }
+
+    /** t 时刻的车身位移：先往下一沉，再阻尼回弹，横向带一点。 */
+    private shakeAt(t: number): [number, number] {
         let x = 0, y = 0;
         for (const b of this.bumps) {
-            const dt = this.now - b.t;
+            const dt = t - b.t;
             if (dt < 0) continue;
             const k = b.a * this.bump;
             y += k * 7 * Math.exp(-dt * 4.5) * Math.sin(dt * Math.PI * 2 * 3.8);
-            x += k * 2 * Math.exp(-dt * 5.5) * Math.sin(dt * Math.PI * 2 * 2.7 + 1.2);
+            // 横向的正弦带初相，颠的那一刻会跳一下：头 50 毫秒渐入，不然水珠的惯性被这一跳横着猛甩出去
+            x += k * 2 * Math.exp(-dt * 5.5) * Math.sin(dt * Math.PI * 2 * 2.7 + 1.2) * (1 - Math.exp(-dt * 60));
         }
         return [x, y];
     }
 
-    /** 水珠形变：颠簸后来回压扁、拉长几下。 */
+    /** 水珠表面的细颤：颠簸后自己来回压扁、拉长几下（被甩开的拉长另算，见 nebbiaDropSpring.ts）。 */
     wobble(phase: number) {
         let w = 0;
         for (const b of this.bumps) {
             const dt = this.now - b.t;
-            if (dt >= 0) w += b.a * this.bump * 0.16 * Math.exp(-dt * 3.2) * Math.sin(dt * Math.PI * 2 * 7 + phase);
+            if (dt >= 0) w += b.a * this.bump * 0.07 * Math.exp(-dt * 3.2) * Math.sin(dt * Math.PI * 2 * 7 + phase);
         }
         return w;
     }
@@ -90,9 +106,10 @@ export class NebbiaGlassMotion {
     /** 放一颗水珠：r 是看得见的半径，sx / sy 压扁拉长。 */
     put(x: number, y: number, r: number, alpha: number, sx = 1, sy = 1) {
         if (r < 0.5 || alpha <= 0.01) return;
-        const wb = this.wobble(x * 0.05 + y * 0.03);
+        const [dx, dy, st] = this.spring.offset(r);
+        const wb = this.wobble(x * 0.05 + y * 0.03) - st;
         const w = r * 8 * sx * (1 + wb), h = r * 8 * sy * (1 - wb);
-        this.drops.push(x, y, w, h, w / 100, Math.min(1, alpha));
+        this.drops.push(x + dx, y + dy, w, h, w / 100, Math.min(1, alpha));
     }
 
     /** 雾上水珠这一帧的实例：晃动，掉落中的往下走走停停并拉长。 */
@@ -108,9 +125,33 @@ export class NebbiaGlassMotion {
                 tr.y1 = y;
                 if (u >= 1) { d.x = x; d.y = y; tr.end = this.now; d.fall = null; }
             }
-            const wb = this.wobble(d.phase);
-            out.push(x, y, d.w * (1 + wb), d.h * (1 - wb + stretch), d.w / 100, 1);
+            const [dx, dy, st] = this.spring.offset(d.w / 8);
+            if (!d.fall) this.trackSmear(d, dx, dy);
+            const wb = this.wobble(d.phase) - st;
+            out.push(x + dx, y + dy, d.w * (1 + wb), d.h * (1 - wb + stretch), d.w / 100, 1);
         }
         return out;
+    }
+
+    /** 记下一颗水珠甩过的范围：沿着甩动方向的两头，甩得更远就往外扩；停下后由 nebbiaMask.ts 慢慢回雾。 */
+    private trackSmear(d: FieldDrop, dx: number, dy: number) {
+        const far = Math.hypot(dx, dy);
+        let m = d.smear;
+        if (far < SMEAR_REST) {
+            if (m && m.end === null) m.end = this.now;
+            return;
+        }
+        // 上一道已经回雾了的不再续，另起一道
+        if (m?.gone) m = null;
+        if (!m) {
+            if (far < SMEAR_MIN) return;
+            m = { x: d.x, y: d.y, w: d.w, ax: 0, ay: 0, bx: 0, by: 0, end: null };
+            d.smear = m;
+            this.smears.push(m);
+        }
+        m.end = null;
+        // 两头按竖直方向分：往上甩的最远点、往下甩的最远点（横向跟着）
+        if (dy < m.ay) { m.ax = dx; m.ay = dy; }
+        if (dy > m.by) { m.bx = dx; m.by = dy; }
     }
 }

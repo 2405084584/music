@@ -5,17 +5,32 @@ import type { Line } from '../../../types';
 // 雾笺的 tuning：歌词怎么出现在雾上、写完怎么消失，雾和窗外的几项，聚光灯、雨点和颠簸的强弱。
 // 原型（dev/prototypes/fog-write）里的其余参数在这里写死成常量（nebbiaConstants.ts）。文件末尾是运行时的输入类型。
 
-/** 字怎么出现：自动（唱得快的句子慢慢显现，其余手指书写）、手指一笔一笔写、整个字从雾里慢慢透出来。 */
-export const NEBBIA_APPEAR_MODES = ['auto', 'write', 'fade'] as const;
-export type NebbiaAppearMode = typeof NEBBIA_APPEAR_MODES[number];
+/**
+ * 字怎么出现，打开的几种都会用到：手指一笔一笔写、整个字从雾里慢慢透出来、先哈一口气再在白气上写（nebbiaBreath.ts）。
+ * 书写的两种开着几种就每句随机挑一种；慢慢显现和书写的一起开时，只用在来不及写完的句子上（nebbiaScene.ts 的 applyAppear）。
+ */
+export const NEBBIA_APPEAR_STYLES = ['write', 'fade', 'breath'] as const;
+export type NebbiaAppearStyle = typeof NEBBIA_APPEAR_STYLES[number];
 
-/** 写完怎么消失：慢慢起雾、几根手指来回抹掉、每句随机。 */
-export const NEBBIA_FADE_MODES = ['fog', 'fingers', 'mix'] as const;
-export type NebbiaFadeMode = typeof NEBBIA_FADE_MODES[number];
+/** 写完怎么消失：慢慢起雾、几根手指来回抹掉；两种都开就每句随机。 */
+export const NEBBIA_FADE_STYLES = ['fog', 'fingers'] as const;
+export type NebbiaFadeStyle = typeof NEBBIA_FADE_STYLES[number];
+
+/** 一句的构图（nebbiaCompositions.ts）：横条、两行错落、三行错落、十字、竖柱、刊头、徽章、竖排几列、环绕。 */
+export const NEBBIA_LAYOUTS = ['ribbon', 'lines2', 'lines3', 'cross', 'pillar', 'header', 'badge', 'columns', 'orbit'] as const;
+export type NebbiaLayout = typeof NEBBIA_LAYOUTS[number];
 
 export interface NebbiaTuning {
-    appearMode: NebbiaAppearMode;
-    fadeMode: NebbiaFadeMode;
+    /** 打开的出现方式，至少一种。 */
+    appear: NebbiaAppearStyle[];
+    /** 打开的消失方式，至少一种。 */
+    fade: NebbiaFadeStyle[];
+    /** 打开的构图，至少一种。 */
+    layouts: NebbiaLayout[];
+    /** 手写歪斜：整字转动、上下错落、整行倾斜。 */
+    jitter: number;
+    /** 手写变形：字形斜切胖瘦、笔画长短偏移、手抖。 */
+    warp: number;
     /** 雾气浓度。 */
     mist: number;
     /** 下一句开始后，写好的字再保持几秒才起雾。 */
@@ -48,6 +63,8 @@ export interface NebbiaTuning {
 
 /** 各个数值项的范围：设置面板的滑块和归一化共用。 */
 export const NEBBIA_LIMITS = {
+    jitter: { min: 0, max: 1.5 },
+    warp: { min: 0, max: 1.5 },
     mist: { min: 0.2, max: 1 },
     hold: { min: 0, max: 6 },
     refog: { min: 0.5, max: 12 },
@@ -67,8 +84,11 @@ export const NEBBIA_LIMITS = {
 export type NebbiaNumberKey = keyof typeof NEBBIA_LIMITS;
 
 export const DEFAULT_NEBBIA_TUNING: NebbiaTuning = {
-    appearMode: 'auto',
-    fadeMode: 'fog',
+    appear: ['write', 'fade'],
+    fade: ['fog'],
+    layouts: [...NEBBIA_LAYOUTS],
+    jitter: 0.6,
+    warp: 0.6,
     mist: 0.75,
     hold: 1.2,
     refog: 4,

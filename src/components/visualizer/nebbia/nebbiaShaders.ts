@@ -11,6 +11,8 @@ void main() { vUv = aPos * 0.5 + 0.5; vUv.y = 1.0 - vUv.y; gl_Position = vec4(aP
 export const NEBBIA_FS = /* glsl */ `#version 300 es
 precision highp float;
 uniform sampler2D uMask, uDrop, uField;
+// 哈气的白气遮罩（R 形状、G 浓度，nebbiaBreath.ts）；屏上没有哈气时 uBreathOn 为假，不采样
+uniform sampler2D uBreath; uniform bool uBreathOn; uniform float uBreathThick;
 uniform vec2 uRes, uGlassShift, uSceneShift; uniform float uTime, uMist, uEdge, uRefract, uBus, uGlint, uNeon;
 uniform vec3 uSky0, uSky1, uLa, uLb, uLc;
 // uPass 0：雾的预渲染；1：主画面。uFogTex 为假时主画面自己算（不支持浮点渲染目标时）
@@ -39,8 +41,21 @@ void main() {
   float blotch = vnoise(px / 55.0 + 3.1);
   float th = 0.3 + (fine - 0.5) * 0.22 * uEdge + (blotch - 0.5) * 0.12;
   float clear = smoothstep(th - 0.05, th + 0.06, m);
+  // 哈气：就是这一片的雾一下变密（更细密的一层水汽凝上来），不是另盖一层。边由大块噪声揉散成一卷卷的、
+  // 细噪声让它发毛，散的时候从薄的地方先透。在白气上写的字照样擦开，水珠周围照样抹开一圈
+  float breath = 0.0;
+  if (uBreathOn) {
+    vec2 bm = texture(uBreath, gv).rg;
+    if (bm.r > 0.003) {
+      // 值噪声直接取阈值会露出横平竖直的格子：每层转一个角度、叠三层，边缘才是一卷卷的
+      vec2 r1 = mat2(0.80, -0.60, 0.60, 0.80) * px, r2 = mat2(0.36, 0.93, -0.93, 0.36) * px;
+      float bn = vnoise(r1 / 34.0 + 7.0) * 0.55 + vnoise(r2 / 15.0 + 2.3) * 0.3 + vnoise(px / 6.5) * 0.15;
+      float bth = 0.3 + (bn - 0.5) * 0.5;
+      breath = smoothstep(bth - 0.2, bth + 0.25, bm.r) * bm.g * uBreathThick;
+    }
+  }
   // 雾：模糊的窗外提亮发灰，光晕散得更开，加浓淡起伏和细颗粒，下半部分略浓
-  float dens = uMist * (0.82 + 0.3 * vnoise(px / 380.0 + uTime * 0.015)) * (0.9 + 0.2 * vUv.y);
+  float dens = uMist * (0.82 + 0.3 * vnoise(px / 380.0 + uTime * 0.015)) * (0.9 + 0.2 * vUv.y) + breath * 0.9;
   vec3 haze = vec3(0.70, 0.74, 0.78);
   vec3 blur, glow;
   if (uFogTex) {
@@ -52,7 +67,8 @@ void main() {
     blur = scene(q, 0.03);
     glow = scene(q, 0.09);
   }
-  vec3 fog = blur * (1.0 - 0.45 * dens) + glow * 0.9 * dens + haze * 0.2 * dens;
+  // 密到普通雾的范围以上（哈气）时，窗外再暗一点、乳白再多一点
+  vec3 fog = blur * max(0.08, 1.0 - 0.45 * dens - 0.25 * breath) + glow * 0.9 * dens + haze * (0.2 * dens + 0.25 * breath);
   fog += (hash(px) - 0.5) * 0.025;
   // 聚光灯照到玻璃上：雾里的小水滴把光散开，字周围一圈雾被照成强调色
   vec2 sd = q - uSpotTgt;

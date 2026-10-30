@@ -1,17 +1,24 @@
+import { NebbiaBreathMask } from './nebbiaBreath';
 import { clamp, NEBBIA_FIXED, MASK_SCALE, smooth } from './nebbiaConstants';
 import { windDrift, type NebbiaGlassMotion } from './nebbiaDrops';
 import type { NebbiaHits } from './nebbiaHits';
 import { drawChar, strokePath, strokeTrail, type InkContext } from './nebbiaInk';
-import { fogStartOf, yieldFactor, type LaidLine } from './nebbiaScene';
+import { yieldFactor, type LaidLine } from './nebbiaScene';
 import { buildWipe, isSwept, streakProgress } from './nebbiaWipe';
 import type { NebbiaTuning } from './types';
 
 // src/components/visualizer/nebbia/nebbiaMask.ts
-// 每帧画一次擦痕遮罩：每句按它的淡出方式算清晰度（写的时候 1，下一句开始后保持 hold 秒，再用 refog 秒起雾；
-// 或几根手指来回抹掉、抹过的地方再起雾），再画雨点和被震落的水珠留下的水痕。水珠实例同时攒进 motion。
+// 每帧画一次擦痕遮罩：每句按它的淡出方式算清晰度（写的时候 1，下一句开始后保持 hold 秒、屏上还空着就多留一会儿，再用 refog 秒起雾；
+// 或几根手指来回抹掉、抹过的地方再起雾），再画雨点和被震落的水珠留下的水痕。让位时被哈气盖掉的句子，
+// 白气另画一张遮罩（nebbiaBreath.ts）。水珠实例同时攒进 motion。
+
+/** 水珠甩出的印子停下后保持几秒、回雾用时是 refog 的几倍。 */
+const SMEAR_HOLD = 8;
+const SMEAR_REFOG = 2.5;
 
 export class NebbiaMask {
     readonly canvas = document.createElement('canvas');
+    readonly breath = new NebbiaBreathMask();
     private readonly ctx: CanvasRenderingContext2D;
 
     constructor() {
@@ -23,6 +30,7 @@ export class NebbiaMask {
     resize(W: number, H: number) {
         this.canvas.width = Math.max(1, Math.round(W * MASK_SCALE));
         this.canvas.height = Math.max(1, Math.round(H * MASK_SCALE));
+        this.breath.resize(W, H);
     }
 
     /** `rainSize` 是大雨点的大小倍数（tuning.rainBig × 雨点强度）。 */
@@ -35,16 +43,21 @@ export class NebbiaMask {
         ctx.globalCompositeOperation = 'lighten';
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
+        this.breath.begin();
         const ink: InkContext = { ctx, motion, strokeWidth: tuning.strokeWidth, writeSpeed: tuning.writeSpeed, busSpeed: tuning.busSpeed };
-        laid.forEach((line, i) => { if (T >= line.t - 0.5) this.drawLine(ink, line, i, T, tuning); });
+        laid.forEach((line, i) => {
+            if (line.breathAt < Infinity) this.breath.drawLine(line, i, T, line.breathAt, line.breathUntil);
+            if (line.appearBreathAt < Infinity) this.breath.drawLine(line, i, T, line.appearBreathAt, line.appearBreathUntil);
+            if (T >= line.t - 0.5) this.drawLine(ink, line, i, T, tuning);
+        });
         hits.draw(ctx, motion, T, tuning.refog, NEBBIA_FIXED.beadHold, rainSize);
         this.drawTrails(motion, now, tuning);
     }
 
     // 一句：慢慢起雾，或手指抹除（另画拖痕，拖过的地方字边水珠被带走）
     private drawLine(ink: InkContext, line: LaidLine, idx: number, T: number, tuning: NebbiaTuning) {
-        const { hold, refog } = tuning, beadHold = NEBBIA_FIXED.beadHold;
-        const fogAt = fogStartOf(line.end, line.next, hold);
+        const { refog } = tuning, beadHold = NEBBIA_FIXED.beadHold;
+        const { fogAt } = line;
         const yf = yieldFactor(line, T);
         if (line.mode === 'fog') {
             const v = (1 - smooth(clamp((T - fogAt) / refog))) * yf;
@@ -56,8 +69,8 @@ export class NebbiaMask {
         if (line.wipe === undefined) line.wipe = buildWipe(line, idx);
         const w = line.wipe;
         if (!w) return;
-        // 要让位的句子：唱完了就提前抹，赶在后面那句开写前抹完
-        const early = line.yieldAt - w.dur - 0.9;
+        // 要让位的句子：唱完了就提前抹，赶在后面那句开写前抹完（要哈气盖掉的不抹）
+        const early = line.breathAt < Infinity ? -Infinity : line.yieldAt - w.dur - 0.9;
         const t0 = fogAt > early && early >= line.end ? early : fogAt;
         const ue = clamp((T - t0) / w.dur);
         // 抹完先清亮一会儿，再慢慢起雾
@@ -83,9 +96,21 @@ export class NebbiaMask {
         if (ue >= 1) for (const b of w.beads) ink.motion.put(b.x, b.y, b.r * (0.55 + 0.45 * vbw), vbw);
     }
 
-    // 被震落的水珠留下的水痕，和手指擦痕一样过一会儿重新起雾；完全回雾的丢掉
+    // 被震落的水珠留下的水痕、颠簸时水珠甩过的印子，和手指擦痕一样过一会儿重新起雾；完全回雾的丢掉
     private drawTrails(motion: NebbiaGlassMotion, now: number, tuning: NebbiaTuning) {
         const { ctx } = this;
+        const smears = motion.smears;
+        ctx.setTransform(MASK_SCALE, 0, 0, MASK_SCALE, 0, 0);
+        for (let i = smears.length - 1; i >= 0; i -= 1) {
+            const m = smears[i];
+            // 甩出的印子留得久：停下后保持 SMEAR_HOLD 秒，再用 refog 的 SMEAR_REFOG 倍慢慢回雾
+            const v = m.end === null ? 1 : 1 - smooth(clamp((now - m.end - SMEAR_HOLD) / (tuning.refog * SMEAR_REFOG)));
+            if (v <= 0.002) { m.gone = true; smears.splice(i, 1); continue; }
+            const p = new Path2D();
+            p.moveTo(m.x + m.ax, m.y + m.ay);
+            p.lineTo(m.x + m.bx, m.y + m.by);
+            strokePath(ctx, p, m.w * 0.14, v * 0.9);
+        }
         const trails = motion.trails;
         for (let i = trails.length - 1; i >= 0; i -= 1) {
             const tr = trails[i];

@@ -1,5 +1,5 @@
 import type { NebbiaChar } from './nebbiaChars';
-import { emitBlock, FLOW_GAP, hasTurned, measureBlock, STACK_GAP, type Block, type PlacedItem } from './nebbiaBlocks';
+import { emitBlock, FLOW_GAP, hasTurned, measureBlock, STACK_GAP, type Block, type Measured, type PlacedItem } from './nebbiaBlocks';
 
 // src/components/visualizer/nebbia/nebbiaCompositions.ts
 // 雾笺照商籁的几种构图摆一句的几块：横条、两三行错落、十字、竖柱、刊头、徽章、竖排几列、环绕。
@@ -72,26 +72,34 @@ export const COMPOSITIONS: Record<string, Composition> = {
         for (let i = h + right + 1; i < n; i += 1) { const m = M(ctx, i, 'v'); vRot += hasTurned(m); emitBlock(m, 0, y + m.h / 2, out); y += m.h + STACK_GAP; }
         return { items: out, vRot };
     },
-    // 竖柱：主词竖着当柱子；前面的词竖排在柱子右边、后面的在左边（竖排从右往左读），上端对齐
+    // 竖柱：主词竖着当柱子；前面的词竖排在柱子左边、后面的在右边（列从左往右读），上端对齐
     pillar(ctx) {
         const { blocks, h } = ctx, n = blocks.length;
         if (n < 2 || n > 6) return null;
         const out: PlacedItem[] = [], hm = M(ctx, h, 'v');
         let vRot = hasTurned(hm);
         emitBlock(hm, 0, 0, out);
+        const top = -hm.h / 2 + 0.15;
         const side = (from: number, to: number, dirX: number) => {
-            let y = -hm.h / 2 + 0.15, colX = dirX * (hm.w / 2 + FLOW_GAP), colW = 0;
+            // 先按柱子高度分好列，再从柱子往外摆；左边的列倒过来摆，最早的一列在最外（最左）
+            const cols: Measured[][] = [[]];
+            let y = top;
             for (let i = from; i !== to; i += 1) {
                 const m = M(ctx, i, 'v');
                 vRot += hasTurned(m);
-                if (y + m.h > hm.h / 2 + 0.6 && colW > 0) { colX += dirX * (colW + FLOW_GAP); y = -hm.h / 2 + 0.15; colW = 0; }
-                emitBlock(m, colX + dirX * m.w / 2, y + m.h / 2, out);
+                if (y + m.h > hm.h / 2 + 0.6 && cols[cols.length - 1].length) { cols.push([]); y = top; }
+                cols[cols.length - 1].push(m);
                 y += m.h + STACK_GAP;
-                colW = Math.max(colW, m.w);
+            }
+            let colX = dirX * (hm.w / 2 + FLOW_GAP);
+            for (const col of dirX > 0 ? cols : [...cols].reverse()) {
+                y = top;
+                for (const m of col) { emitBlock(m, colX + dirX * m.w / 2, y + m.h / 2, out); y += m.h + STACK_GAP; }
+                colX += dirX * (Math.max(0, ...col.map(m => m.w)) + FLOW_GAP);
             }
         };
-        side(0, h, 1);
-        side(h + 1, n, -1);
+        side(0, h, -1);
+        side(h + 1, n, 1);
         return { items: out, vRot };
     },
     // 刊头：前面的词一行在主词上方当眉题，后面的词两两分到主词下方左右两栏
@@ -136,13 +144,13 @@ export const COMPOSITIONS: Record<string, Composition> = {
         });
         return { items: out, vRot: hasTurned(hm) };
     },
-    // 竖排几列（只给中日文）：每块一列，从右往左读
+    // 竖排几列（只给中日文）：每块一列，从左往右读
     columns(ctx) {
         const { blocks } = ctx, n = blocks.length;
         if (n < 2 || n > 5 || blocks.some(b => b.words.some(w => !w.cjk))) return null;
         const out: PlacedItem[] = [];
         let x = 0;
-        blocks.forEach((_, i) => { const m = M(ctx, i, 'v'); emitBlock(m, x - m.w / 2, m.h / 2 + (i % 2) * 0.5, out); x -= m.w + STACK_GAP; });
+        blocks.forEach((_, i) => { const m = M(ctx, i, 'v'); emitBlock(m, x + m.w / 2, m.h / 2 + (i % 2) * 0.5, out); x += m.w + STACK_GAP; });
         return { items: out, vRot: 0 };
     },
     // 环绕：主词在中间，其余词顺时针绕一圈，左右两侧竖排、上下横排，每块都离开已放下的块

@@ -13,12 +13,18 @@ export interface NebbiaLayoutOptions {
     W: number;
     H: number;
     jitter: number;
+    /** 打开的构图；关掉的不参与挑选（实在放不下时的三行兜底不受限）。 */
+    layouts: readonly string[];
     /** 字号倍数（用户的歌词字号）。 */
     fontScale: number;
     /** 第 i 句的擦痕完全被雾吞掉的时刻、开始起雾的时刻。 */
     visibleUntil: (i: number) => number;
     fogAt: (i: number) => number;
+    /** 屏上还空着时第 i 句最多留到的时刻：多留的这段只算一点点占地方，后面的句子要用这块它就让位。 */
+    lingerUntil?: (i: number) => number;
 }
+/** 多留着的句子占地方的权重：有空地就别压上去，但不为它缩小字号。 */
+const LINGER_WEIGHT = 0.03;
 
 type Box = { x0: number; x1: number; y0: number; y1: number };
 interface Candidate { score: number; name: string; items: PlacedItem[]; bb: Box; S: number; cx: number; cy: number; box: Box }
@@ -35,10 +41,10 @@ const overlapArea = (a: Box, b: Box) => Math.max(0, Math.min(a.x1, b.x1) - Math.
 
 /** 排整首歌：每句一个数组，和 chars 一一对应（空格也有位置，但不画）。 */
 export const layoutNebbiaSong = (lines: NebbiaSourceLine[], opts: NebbiaLayoutOptions): NebbiaCharPos[][] => {
-    const { W, H, jitter, fontScale, visibleUntil, fogAt } = opts;
+    const { W, H, jitter, layouts, fontScale, visibleUntil, fogAt, lingerUntil } = opts;
     const mx = W * 0.05, my = H * 0.07;
     const Smin = Math.max(26, H * 0.065) * fontScale, Smax = H * 0.14 * fontScale;
-    const placed: { box: Box; until: number; fogAt: number }[] = [];
+    const placed: { box: Box; until: number; fogAt: number; linger: number }[] = [];
     const recent: string[] = [];
     let prev: Candidate | null = null;
     return lines.map((line, li) => {
@@ -52,9 +58,10 @@ export const layoutNebbiaSong = (lines: NebbiaSourceLine[], opts: NebbiaLayoutOp
         const roles = assignRoles(chars, words);
         const RS = fast ? ROLE_SCALE_FAST : ROLE_SCALE;
         // 这句出现时还在屏上的句子；已经开始起雾的按剩下的清晰度打折
-        const busy = placed.filter(p => p.until > line.t - 0.3).map(p => ({
+        const busy = placed.filter(p => p.linger > line.t - 0.3).map(p => ({
             box: p.box,
-            w: line.t <= p.fogAt ? 1 : 0.6 + 0.4 * clamp((p.until - line.t) / Math.max(1e-3, p.until - p.fogAt)),
+            w: p.until <= line.t - 0.3 ? LINGER_WEIGHT
+                : line.t <= p.fogAt ? 1 : 0.6 + 0.4 * clamp((p.until - line.t) / Math.max(1e-3, p.until - p.fogAt)),
         }));
 
         let best: Candidate | null = null;
@@ -62,6 +69,7 @@ export const layoutNebbiaSong = (lines: NebbiaSourceLine[], opts: NebbiaLayoutOp
             const blocks = makeBlocks(chars, words, roles, RS, maxBlocks);
             const ctx: CompositionContext = { blocks, h: Math.max(0, blocks.findIndex(b => b.role === 'hero')), chars };
             for (const name of Object.keys(COMPOSITIONS)) {
+                if (!layouts.includes(name)) continue;
                 const res = COMPOSITIONS[name](ctx);
                 if (!res || !res.items.length) continue;
                 const bb = bboxOf(res.items);
@@ -106,7 +114,7 @@ export const layoutNebbiaSong = (lines: NebbiaSourceLine[], opts: NebbiaLayoutOp
             best = { score: 0, name: 'lines3', items: res.items, bb, S, cx: W / 2, cy: H / 2, box: { x0: W / 2 - bb.w * S / 2, x1: W / 2 + bb.w * S / 2, y0: H / 2 - bb.h * S / 2, y1: H / 2 + bb.h * S / 2 } };
         }
         const chosen: Candidate = best;
-        placed.push({ box: chosen.box, until: visibleUntil(li), fogAt: fogAt(li) });
+        placed.push({ box: chosen.box, until: visibleUntil(li), fogAt: fogAt(li), linger: Math.max(visibleUntil(li), lingerUntil?.(li) ?? 0) });
         recent.push(chosen.name);
         if (recent.length > 3) recent.shift();
         prev = chosen;

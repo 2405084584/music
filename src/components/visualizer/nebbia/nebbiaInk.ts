@@ -1,6 +1,6 @@
 import { clamp, NEBBIA_FIXED, MASK_SCALE, smooth } from './nebbiaConstants';
 import { windDrift, type NebbiaGlassMotion } from './nebbiaDrops';
-import { naturalWriteTime, type Drip, type LaidChar } from './nebbiaScene';
+import { type Drip, type LaidChar } from './nebbiaScene';
 import { pointAt, type GlyphStroke } from './nebbiaGlyphs';
 
 // src/components/visualizer/nebbia/nebbiaInk.ts
@@ -76,25 +76,25 @@ const drawDrip = (ink: InkContext, c: LaidChar, st: GlyphStroke, d: Drip, age: n
 };
 
 /**
- * 画一个字到时刻 T：按演唱时长写完，太慢的字按自然速度提前写完。clarity 管擦痕，beadV 管擦痕边的水珠
+ * 画一个字到时刻 T：从 c.wt 起用 c.wd 秒写完（整句的书写节奏在 nebbiaScene.ts 的 applyAppear）。clarity 管擦痕，beadV 管擦痕边的水珠
  * （水珠比擦痕晚很久才被雾吞掉）；alive(x, y) 为 0 的地方水珠已经被手指抹走。慢慢显现的字一次画全，不带水珠。
  */
 export const drawChar = (ink: InkContext, c: LaidChar, T: number, clarityIn: number, beadIn = clarityIn, alive: ((x: number, y: number) => number) | null = null) => {
     const g = c.glyph;
-    if (!g || T < c.t) return;
-    const { ctx, motion } = ink;
     const fadeIn = c.appearDur > 0;
+    if (!g || T < (fadeIn ? c.t : c.wt)) return;
+    const { ctx, motion } = ink;
     let clarity = clarityIn, beadV = beadIn;
     if (fadeIn) { const a = smooth(clamp((T - c.t) / c.appearDur)); clarity *= a; beadV *= a; }
-    const natural = naturalWriteTime(g, ink.writeSpeed);
-    const wd = clamp(c.d * 0.95, natural * 0.3, natural);
+    const wd = c.wd;
     const gap = Math.min(0.06 / ink.writeSpeed, wd * 0.08);
     const inkTime = wd - gap * (g.strokes.length - 1);
-    let local = T - c.t;
+    let local = T - (fadeIn ? c.t : c.wt);
     const k = MASK_SCALE, cs = Math.cos(c.rot), sn = Math.sin(c.rot);
     ctx.setTransform(cs * c.s * k, sn * c.s * k, -sn * c.s * k, cs * c.s * k, (c.x - c.s / 2 * (cs - sn)) * k, (c.y - c.s / 2 * (sn + cs)) * k);
-    // 笔画多的字笔画收细一点，不然挤在一起糊成一团
-    const width = Math.max(ink.strokeWidth * clamp(Math.sqrt(9 / g.strokes.length), 0.55, 1), 8 / c.s);
+    // 笔画多的字笔画收细一点，不然挤在一起糊成一团；最细 8 像素的下限也跟着收，不然字小时下限盖过了收细
+    const thin = clamp(Math.sqrt(9 / g.strokes.length), 0.55, 1);
+    const width = Math.max(ink.strokeWidth * thin, 8 * thin / c.s);
     const drips: [GlyphStroke, Drip, number][] = [];
     g.strokes.forEach((st, si) => {
         const dur = fadeIn ? 0 : inkTime * st.len / g.total;

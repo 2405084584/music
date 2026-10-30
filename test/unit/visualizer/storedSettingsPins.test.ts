@@ -150,7 +150,7 @@ const CURRENT: Record<string, unknown> = {
         colorMode: 'vivid', sparkAmount: 1.5, ornamentAmount: 0.5, textMotion: 1.2, blockOpacity: 0.7, riseSpeed: 0.6,
         launches: !DEFAULT_HANABI_TUNING.launches, overlayFrame: !DEFAULT_HANABI_TUNING.overlayFrame, sky: 0.4, collage: 1.5,
     },
-    nebbia_tuning: { ...DEFAULT_NEBBIA_TUNING, appearMode: 'write', fadeMode: 'fingers', mist: 0.5, refog: 6, spot: 1.2, rainHit: 2, resolution: 0.75 },
+    nebbia_tuning: { ...DEFAULT_NEBBIA_TUNING, appear: ['write'], fade: ['fingers'], layouts: ['ribbon', 'orbit'], jitter: 1.2, mist: 0.5, refog: 6, spot: 1.2, rainHit: 2, resolution: 0.75 },
     monet_background_tuning: {
         ...DEFAULT_MONET_BACKGROUND_TUNING,
         backgroundSource: 'uploaded-global', backgroundLayout: 'half-pane-gradient', backgroundBlurPx: 24, backgroundOverlayOpacity: 0.3,

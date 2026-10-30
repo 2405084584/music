@@ -3,13 +3,15 @@ import { isIconChar, type NebbiaChar, type NebbiaSourceLine } from './nebbiaChar
 import { isWideChar } from './nebbiaBlocks';
 import { pointAt, warpGlyph, type NebbiaGlyphCache, type Glyph } from './nebbiaGlyphs';
 import { layoutNebbiaSong } from './nebbiaLayout';
+import type { NebbiaBreath } from './nebbiaBreath';
 import type { NebbiaWipe } from './nebbiaWipe';
-import type { NebbiaFadeMode, NebbiaTuning } from './types';
+import type { NebbiaTuning } from './types';
 import { createVisualizerRng, hashVisualizerSeed } from '../visualizerSeedHash';
 
 // src/components/visualizer/nebbia/nebbiaScene.ts
 // 一首歌在雾笺上的全部安排：每个字的位置、变形后的字形、擦痕边的水珠和下淌的水珠、出现方式（手写或透出）；
-// 每句的淡出方式和「让位」时刻（后面某句要写到这句的位置、而这句还没被雾吞掉时，这句提前快速起雾）。
+// 每句的淡出方式和「让位」时刻（后面某句要写到这句的位置、而这句还没被雾吞掉时，这句提前快速起雾，
+// 屏上满了来不及的就哈一口气盖掉，nebbiaBreath.ts）。
 // 只由歌词、tuning 和屏幕尺寸决定；每帧怎么画在 nebbiaMask.ts。
 
 export interface Bead { s: number; x: number; y: number; nx: number; ny: number; r: number; j: number }
@@ -23,25 +25,44 @@ export interface LaidChar extends NebbiaChar {
     ends: { h: number; j: number }[];
     /** 慢慢显现用几秒；0 = 手指书写。 */
     appearDur: number;
+    /** 手指书写的开始时刻和用时（不早于开唱，前一个字写完才轮到它），见 applyAppear。 */
+    wt: number; wd: number;
 }
 export interface LaidLine {
     chars: LaidChar[];
     t: number; end: number; next: number;
     mode: 'fog' | 'fingers';
+    /** 开始起雾（或手指抹除）的时刻：屏上还空着时比 fogStartOf 晚，见 buildNebbiaScene。 */
+    fogAt: number;
     yieldAt: number;
     /** 手指抹除的几何，第一次用到时才建（undefined = 还没建，null = 没有可抹的字）。 */
     wipe?: NebbiaWipe | null;
+    /**
+     * 让位时还没消失：屏上满了、后面那句要写到这里，就对着这句哈一口气把它盖掉（nebbiaBreath.ts）。
+     * breathAt 是开始哈的时刻（Infinity = 不用哈），breathUntil 是白气开始散的时刻（后面那句唱完再留一会儿）。
+     */
+    breathAt: number;
+    breathUntil: number;
+    /** 出现方式选到「哈气后书写」的：开写前对着自己的位置哈一口气（Infinity = 不哈），白气留到 appearBreathUntil 再散。 */
+    appearBreathAt: number;
+    appearBreathUntil: number;
+    /** 哈气的白气，第一次用到时才建（undefined = 还没建，null = 没有字）。 */
+    breath?: NebbiaBreath | null;
 }
 
-const lineModeOf = (fade: NebbiaFadeMode, idx: number, seed: number): 'fog' | 'fingers' => (
-    fade !== 'mix' ? fade : (createVisualizerRng((seed + idx * 977 + 3) >>> 0)() < 0.5 ? 'fog' : 'fingers')
+/** 一句的消失方式：两种都开就按种子随机。 */
+const lineModeOf = (fade: NebbiaTuning['fade'], idx: number, seed: number): 'fog' | 'fingers' => (
+    fade.length === 1 ? fade[0] : (createVisualizerRng((seed + idx * 977 + 3) >>> 0)() < 0.5 ? 'fog' : 'fingers')
 );
 /** 写完后开始起雾的时刻：下一句开始（最多唱完 6 秒）后再保持 hold 秒。 */
 export const fogStartOf = (end: number, next: number, hold: number) => Math.min(next, end + 6) + hold;
+/** 屏上还空着时，一句最多比 fogStartOf 多留几秒；也最多留到后面第 LINGER_LINES 句开始后 hold 秒。 */
+const LINGER_MAX = 16;
+const LINGER_LINES = 3;
 
 /** 一个字挑水珠：每一笔沿边缘零星凝出小水珠，少数笔画底部会淌下一颗。 */
-const decorate = (c: LaidChar, base: Glyph, rnd: () => number) => {
-    const g = warpGlyph(base, createVisualizerRng(Math.floor(rnd() * 1e9)), NEBBIA_FIXED.warp);
+const decorate = (c: LaidChar, base: Glyph, rnd: () => number, warp: number) => {
+    const g = warpGlyph(base, createVisualizerRng(Math.floor(rnd() * 1e9)), warp);
     c.glyph = g;
     c.beads = g.strokes.map(st => {
         const out: Bead[] = [], step = 7 / c.s;
@@ -61,13 +82,39 @@ const decorate = (c: LaidChar, base: Glyph, rnd: () => number) => {
 /** 自然书写一个字要几秒。 */
 export const naturalWriteTime = (g: Glyph, speed: number) => (g.total * 0.28 + (g.strokes.length - 1) * 0.06) / speed;
 
-/** 一句的出现方式：auto 时这句平均每个字唱的时间不到自然书写时间的一半，就慢慢显现。 */
-const applyAppear = (line: LaidLine, tuning: NebbiaTuning) => {
+/** 按速度系数 k（用时 = 自然用时 × k）一个接一个写，返回每个字的开始时刻和写完的时刻。 */
+const scheduleWrite = (cs: LaidChar[], nat: number[], k: number) => {
+    let end = -Infinity;
+    const starts = cs.map((c, i) => { const t0 = Math.max(c.t, end); end = t0 + nat[i] * k; return t0; });
+    return { starts, end };
+};
+
+/**
+ * 一句的出现方式和书写节奏：写字不必跟着每个字唱的那一点，可以一直写到下一句开唱（或这句唱完，取晚的）。
+ * 字照顺序一个接一个写，不早于开唱；整句统一一个速度系数，正好写完，最慢是自然速度、最快压到 0.3 倍。
+ * 书写的两种（手指书写、哈气后书写）开着几种就按种子挑一种；慢慢显现也开着时，压到 0.3 倍都写不完的句子改成慢慢显现，
+ * 只开慢慢显现就句句显现。
+ */
+const applyAppear = (line: LaidLine, tuning: NebbiaTuning, idx: number, seed: number) => {
+    const kinds = tuning.appear.filter(a => a !== 'fade');
+    const canFade = tuning.appear.includes('fade');
+    const kind = kinds.length ? kinds[Math.floor(createVisualizerRng((seed + idx * 613 + 11) >>> 0)() * kinds.length)] : null;
     const cs = line.chars.filter(c => c.glyph);
-    let fade = tuning.appearMode === 'fade';
-    if (tuning.appearMode === 'auto' && cs.length) {
-        const sung = cs.reduce((s, c) => s + c.d, 0), nat = cs.reduce((s, c) => s + naturalWriteTime(c.glyph!, tuning.writeSpeed), 0);
-        fade = sung < nat * 0.5;
+    const nat = cs.map(c => naturalWriteTime(c.glyph!, tuning.writeSpeed));
+    const until = Math.max(line.next, line.end);
+    let k = 1;
+    if (scheduleWrite(cs, nat, 1).end > until) {
+        // 写完的时刻随 k 单调，二分找正好写完的 k
+        let lo = 0.3, hi = 1;
+        for (let n = 0; n < 14; n += 1) { const m = (lo + hi) / 2; if (scheduleWrite(cs, nat, m).end > until) hi = m; else lo = m; }
+        k = lo;
+    }
+    const plan = scheduleWrite(cs, nat, k);
+    const fade = !kind || (canFade && cs.length > 0 && plan.end > until + 1e-3);
+    cs.forEach((c, i) => { c.wt = plan.starts[i]; c.wd = nat[i] * k; });
+    if (kind === 'breath' && !fade && cs.length) {
+        line.appearBreathAt = cs[0].wt - NEBBIA_FIXED.breathSpread - 0.3;
+        line.appearBreathUntil = line.end + NEBBIA_FIXED.breathHold;
     }
     for (const c of line.chars) c.appearDur = fade ? clamp(c.d * 3, 0.35, 1.2) : 0;
 };
@@ -90,32 +137,50 @@ export const buildNebbiaScene = (
     seed: string | number,
 ): LaidLine[] => {
     const seedHash = hashVisualizerSeed(String(seed));
-    const modes = source.map((_, i) => lineModeOf(tuning.fadeMode, i, seedHash));
+    const modes = source.map((_, i) => lineModeOf(tuning.fade, i, seedHash));
     const fogAt = (i: number) => fogStartOf(source[i].end, source[i].next, tuning.hold);
-    const goneAt = (i: number) => fogAt(i) + tuning.refog + (modes[i] === 'fog' ? 0 : 2.5);
-    const pos = layoutNebbiaSong(source, { W: size.W, H: size.H, jitter: NEBBIA_FIXED.jitter, fontScale: size.fontScale, visibleUntil: goneAt, fogAt });
+    const lingerAt = (i: number) => Math.max(fogAt(i), Math.min(fogAt(i) + LINGER_MAX, (source[i + LINGER_LINES]?.t ?? Infinity) + tuning.hold));
+    const fadeOf = (i: number) => tuning.refog + (modes[i] === 'fog' ? 0 : 2.5);
+    const goneAt = (i: number) => fogAt(i) + fadeOf(i);
+    const pos = layoutNebbiaSong(source, {
+        W: size.W, H: size.H, jitter: tuning.jitter, layouts: tuning.layouts, fontScale: size.fontScale, visibleUntil: goneAt, fogAt,
+        lingerUntil: i => lingerAt(i) + fadeOf(i),
+    });
     const laid: LaidLine[] = source.map((line, li) => ({
-        t: line.t, end: line.end, next: line.next, mode: modes[li], yieldAt: Infinity,
+        t: line.t, end: line.end, next: line.next, mode: modes[li], fogAt: fogAt(li), yieldAt: Infinity, breathAt: Infinity, breathUntil: Infinity,
+        appearBreathAt: Infinity, appearBreathUntil: Infinity,
         chars: line.chars.map((c, i) => {
             const p = pos[li][i], wide = isWideChar(c.ch) || isIconChar(c.ch);
-            const out: LaidChar = { ...c, x: p.x, y: p.y, s: p.s * (wide ? 1 : 1.15), rot: p.rot, glyph: null, beads: [], drips: [], ends: [], appearDur: 0 };
+            const out: LaidChar = { ...c, x: p.x, y: p.y, s: p.s * (wide ? 1 : 1.15), rot: p.rot, glyph: null, beads: [], drips: [], ends: [], appearDur: 0, wt: c.t, wd: 0 };
             const base = glyphs.get(c.ch);
-            if (base) decorate(out, base, createVisualizerRng((li * 131 + i * 17 + 5) >>> 0));
+            if (base) decorate(out, base, createVisualizerRng((li * 131 + i * 17 + 5) >>> 0), tuning.warp);
             return out;
         }),
     }));
-    laid.forEach(line => applyAppear(line, tuning));
-    // 让位：后面第一句和这句重叠、且在这句消失前开始的，记下它开始的时刻
+    laid.forEach((line, li) => applyAppear(line, tuning, li, seedHash));
+    // 让位：后面第一句和这句重叠、且在这句（多留之后）消失前开始的，记下它开始的时刻。
+    // 多留：屏上还空着就晚点起雾，留到让位前 refog 秒（来得及慢慢起雾），不早于原来的时刻。
+    // 到让位时还消失不了的（屏上满了），在那句开写前哈一口气把这句盖掉，那句写在白气上
     const rects = laid.map(lineRect);
+    const { breathSpread, breathHold } = NEBBIA_FIXED;
     laid.forEach((line, i) => {
-        const gone = goneAt(i);
+        const gone = lingerAt(i) + fadeOf(i);
+        let by = -1;
         for (let j = i + 1; j < laid.length && laid[j].t < gone; j += 1) {
             const a = rects[i], b = rects[j];
-            if (Math.min(a.x1, b.x1) > Math.max(a.x0, b.x0) && Math.min(a.y1, b.y1) > Math.max(a.y0, b.y0)) { line.yieldAt = laid[j].t; break; }
+            if (Math.min(a.x1, b.x1) > Math.max(a.x0, b.x0) && Math.min(a.y1, b.y1) > Math.max(a.y0, b.y0)) { line.yieldAt = laid[j].t; by = j; break; }
+        }
+        line.fogAt = Math.max(fogAt(i), Math.min(lingerAt(i), line.yieldAt - fadeOf(i)));
+        if (by >= 0 && line.yieldAt < line.fogAt + fadeOf(i)) {
+            line.breathAt = line.yieldAt - breathSpread - 0.3;
+            line.breathUntil = laid[by].end + breathHold;
         }
     });
     return laid;
 };
 
-/** 让位的句子在后面那句开写前 0.6 秒起用 1 秒快速起雾。 */
-export const yieldFactor = (line: LaidLine, T: number) => 1 - smooth(clamp((T - line.yieldAt + 0.6) / 1));
+/** 让位的句子在后面那句开写前 0.6 秒起用 1 秒快速起雾；屏上满了要哈气盖掉的，在白气鼓开的这一下里没了。 */
+export const yieldFactor = (line: LaidLine, T: number) => (line.breathAt < Infinity
+    // 哈气盖掉的：白气鼓开的这一下里没了
+    ? 1 - smooth(clamp((T - line.breathAt) / NEBBIA_FIXED.breathSpread))
+    : 1 - smooth(clamp((T - line.yieldAt + 0.6) / 1)));

@@ -3,10 +3,6 @@
 // 值都是原型里调好的默认值；要开放成设置时挪进 types.ts 的 NebbiaTuning。
 
 export const NEBBIA_FIXED = {
-    /** 手写歪斜：整字转动、上下错落、整行倾斜。 */
-    jitter: 0.6,
-    /** 手写变形：字形斜切胖瘦、笔画长短偏移、手抖。 */
-    warp: 0.6,
     /** 擦痕边缘毛糙。 */
     edge: 0.6,
     /** 擦痕边上凝出的小水珠。 */
@@ -25,6 +21,11 @@ export const NEBBIA_FIXED = {
     endBeadMin: 48,
     /** 字被雾吞掉后水珠多挂几秒。 */
     beadHold: 4,
+    /** 让位时哈气盖掉旧句子：白气从中线鼓开到整片的秒数、新句子唱完后再留几秒、散掉的秒数、浓度（nebbiaBreath.ts）。 */
+    breathSpread: 0.3,
+    breathHold: 1,
+    breathFade: 8,
+    breathThick: 0.7,
     /** 颠簸频率、颠簸把大水珠震落的概率。 */
     bumpRate: 1,
     bumpFall: 0.5,

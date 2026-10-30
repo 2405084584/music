@@ -25,7 +25,9 @@ import { NebbiaSceneClock } from './nebbiaSceneClock';
 // 静态模式照常跟着歌词写字，窗外按车速匀速走，但不颠簸、没有小雨点。
 
 // 改了要重排整首的 tuning 项
-const LAYOUT_KEYS: (keyof NebbiaTuning)[] = ['appearMode', 'fadeMode', 'hold', 'refog', 'writeSpeed', 'doodle'];
+const LAYOUT_KEYS: (keyof NebbiaTuning)[] = ['appear', 'fade', 'layouts', 'jitter', 'warp', 'hold', 'refog', 'writeSpeed', 'doodle'];
+// 开关组是数组，每次合并都是新的一份：按内容比
+const sameValue = (a: unknown, b: unknown) => (Array.isArray(a) && Array.isArray(b) ? a.join() === b.join() : a === b);
 
 export class NebbiaRuntime {
     private readonly canvas = document.createElement('canvas');
@@ -115,7 +117,7 @@ export class NebbiaRuntime {
         this.tuning = tuning;
         this.motion.bump = tuning.bump;
         if (prev.resolution !== tuning.resolution) this.resize();
-        if (LAYOUT_KEYS.some(k => prev[k] !== tuning[k])) this.rebuild();
+        if (LAYOUT_KEYS.some(k => !sameValue(prev[k], tuning[k]))) this.rebuild();
         this.requestFrame();
     }
 
@@ -228,7 +230,7 @@ export class NebbiaRuntime {
         this.hits.advance(T, e, this.still ? 0 : t.rainHit * vocalStrength, NebbiaHits.lifeOf(t.refog, NEBBIA_FIXED.beadHold), this.W, this.H);
         this.mask.draw(this.laid, T, now, t, this.motion, this.hits, t.rainBig * vocalStrength);
         this.spot.update(this.laid, T, dt);
-        this.gl.render(this.mask.canvas, this.motion.drops, this.motion.fieldInstances(this.fieldInst, t.busSpeed),
+        this.gl.render(this.mask.canvas, this.mask.breath.active ? this.mask.breath.canvas : null, this.motion.drops, this.motion.fieldInstances(this.fieldInst, t.busSpeed),
             nebbiaFrameUniforms(t, this.motion.shake(), this.spot, this.W, this.H, this.clock.time));
         if (!this.firstDrawn) { this.firstDrawn = true; this.input.onFirstFrame(); }
         if (!this.paused) this.raf = requestAnimationFrame(this.frame);

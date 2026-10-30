@@ -60,7 +60,11 @@ const trace = (img: Uint8Array): Pt[][] => {
             p.push([x, y]);
         }
         if (p.length >= 4) polys.push(p);
+        // 短的多是细化在交叉处留下的毛刺，扔掉；但不连着别的笔画的是一个点（粗字重下「我」右上的点细化后只剩几个像素），留下
+        else if (isolated(p)) polys.push(p.length > 1 ? p : [p[0], [p[0][0] + 1, p[0][1] + 1]]);
     };
+    const isolated = (p: Pt[]) => p.every(([px, py]) => N.every(([dx, dy]) => !on(px + dx, py + dy)
+        || p.some(([qx, qy]) => qx === px + dx && qy === py + dy)));
     for (let y = 0; y < SK; y += 1) for (let x = 0; x < SK; x += 1) if (img[y * SK + x] && deg(x, y) === 1 && !seen[y * SK + x]) walk(x, y);
     for (let y = 0; y < SK; y += 1) for (let x = 0; x < SK; x += 1) if (img[y * SK + x] && !seen[y * SK + x]) walk(x, y);
     return polys;

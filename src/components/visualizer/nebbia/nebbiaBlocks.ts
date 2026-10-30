@@ -1,5 +1,6 @@
 import { clamp } from './nebbiaConstants';
 import { isIconChar, type NebbiaChar } from './nebbiaChars';
+import { getNebbiaStrokeMedians } from './nebbiaStrokes';
 
 // src/components/visualizer/nebbia/nebbiaBlocks.ts
 // 雾笺排版的前半段，照商籁的思路（sonnetTypographyRoles.ts）：按「字数 + 时长」给词打分，分最高的是主词（hero）
@@ -107,6 +108,15 @@ export interface PlacedItem { k: number; x: number; y: number; s: number; rot: n
 
 const gapOf = (a: BlockWord, b: BlockWord) => (a.cjk && b.cjk ? 0.04 : 0.24);
 
+/**
+ * 笔画多的字单独放大（10 笔起，19 笔以上到 1.25 倍），字号小也看得清；本来就大的词（主词）放大得少。
+ * 只看笔顺数据里的笔数：没有数据的字（拉丁字母、数据还没加载）不放大。
+ */
+const complexScale = (ch: string, scale: number) => {
+    const n = getNebbiaStrokeMedians(ch)?.length ?? 0;
+    return 1 + 0.25 * clamp((n - 9) / 10) / Math.max(1, scale);
+};
+
 /** 量一块：'h' 横排，'v' 竖排。items 是沿排列方向各字的偏移。 */
 export const measureBlock = (block: Block, chars: NebbiaChar[], dir: 'h' | 'v'): Measured => {
     const items: MeasureItem[] = [];
@@ -118,10 +128,11 @@ export const measureBlock = (block: Block, chars: NebbiaChar[], dir: 'h' | 'v'):
             const vertCjk = dir === 'v' && w.cjk;
             const a = vertCjk ? (PUNCT.test(ch) ? 0.55 : 1.02) : advanceOf(ch);
             const rot = dir === 'v' && (!w.cjk || TURN_IN_VERTICAL.test(ch)) ? Math.PI / 2 : 0;
-            items.push({ k, off: pen + a * w.scale / 2, s: w.scale, rot, punct: vertCjk && PUNCT.test(ch) });
-            pen += a * w.scale;
+            const s = w.scale * (w.cjk ? complexScale(ch, w.scale) : 1);
+            items.push({ k, off: pen + a * s / 2, s, rot, punct: vertCjk && PUNCT.test(ch) });
+            pen += a * s;
+            thick = Math.max(thick, s);
         }
-        thick = Math.max(thick, w.scale);
     });
     return dir === 'h' ? { dir, items, w: pen, h: thick } : { dir, items, w: thick, h: pen };
 };
