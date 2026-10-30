@@ -1,6 +1,7 @@
 import type * as THREE from 'three';
 import type { Line, Theme } from '../../../../types';
 import type { MachiSongContext } from '../createMachiRuntime';
+import type { MachiBeatFrame } from '../engine/beatFx';
 import type { MachiCameraFraming } from '../engine/camera';
 import type { MachiBoardTarget } from '../engine/director';
 import type { MachiEnvironmentLook, MachiEnvironmentState } from '../engine/environment';
@@ -69,6 +70,8 @@ export interface MachiSceneFrame {
     pixelsPerUnit: number;
     /** 后处理的氛围参数：场景填雾里的两处灯（位置与颜色）。 */
     atmosphere: MachiAtmosphereFrame;
+    /** 智能动感模式这一帧的量（engine/beatFx.ts）：霓虹、暖色灯的亮度倍数，光斑的一跳，歌词屏的闪拍。 */
+    beat: MachiBeatFrame;
 }
 
 export interface MachiScene {

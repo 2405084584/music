@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Line } from '../../../../../types';
 import { prepareWordColorMatchers } from '../../../wordColoring';
+import type { MachiBeatFrame } from '../../engine/beatFx';
 import { resolveMachiTickerText, type MachiBoardTarget } from '../../engine/director';
 import { MachiLedStrip } from '../../engine/ledStrip';
 import { MachiLyricScreen } from '../../engine/lyricScreen';
@@ -41,6 +42,7 @@ export interface StationSignFrame {
     /** 人造光的亮度（白天弱）。 */
     artificial: number;
     lineIndex: number;
+    beat: MachiBeatFrame;
 }
 
 const BULB_VERTEX = /* glsl */ `
@@ -267,12 +269,14 @@ export class StationSigns {
             this.vacancy.material.map = full ? this.vacancyFull.texture : this.vacancy.texture;
             this.vacancy.material.needsUpdate = true;
         }
-        const neon = (0.8 + 0.2 * frame.flicker) * (1 + 0.15 * chorus);
+        // 霓虹随拍（智能动感模式）：汽车旅馆的霓虹每拍亮一下，罩棚店招与价格立柱的灯箱只亮一点。
+        const { beat } = frame;
+        const neon = (0.8 + 0.2 * frame.flicker) * (1 + 0.15 * chorus) * beat.neon;
         this.motelTall.material.color.setScalar(this.motelTall.level * neon * frame.artificial);
-        this.motelName.material.color.setScalar(this.motelName.level * frame.artificial);
-        this.vacancy.material.color.setScalar(this.vacancy.level * frame.artificial);
-        this.canopy.material.color.setScalar(this.canopy.level * (0.7 + 0.3 * frame.artificial));
-        this.pylon.material.color.setScalar(this.pylon.level * (0.75 + 0.25 * frame.artificial));
+        this.motelName.material.color.setScalar(this.motelName.level * frame.artificial * beat.neon);
+        this.vacancy.material.color.setScalar(this.vacancy.level * frame.artificial * beat.neon);
+        this.canopy.material.color.setScalar(this.canopy.level * (0.7 + 0.3 * frame.artificial) * beat.lightbox);
+        this.pylon.material.color.setScalar(this.pylon.level * (0.75 + 0.25 * frame.artificial) * beat.lightbox);
         this.bulbMaterial.uniforms.uTime!.value = frame.staticMode ? 0 : frame.ambientTime;
         this.bulbMaterial.uniforms.uLevel!.value = frame.artificial;
         (this.bulbMaterial.uniforms.uColor!.value as THREE.Color).copy(this.blend.get('streetLight'));

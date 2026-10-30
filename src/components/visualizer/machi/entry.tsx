@@ -1,5 +1,6 @@
 import React from 'react';
 import { Orbit } from 'lucide-react';
+import { BEAT_EFFECT_IDS } from '../../../services/beatFx/beatEffects';
 import { cycleValue, QuickControlChip, QuickControlToggle } from '../../shared/QuickControlChip';
 import { defineVisualizer, type VisualizerQuickControlsProps } from '../definition';
 import MachiSettingsPanel, {
@@ -43,6 +44,28 @@ export default defineVisualizer({
     },
     // The scene draws its own sky: no shared background under it.
     background: false,
+    // 智能动感模式 (engine/beatFx.ts): the neon and the lights swell on the beats; each kick rings a ripple out over
+    // the wet ground and each snare flashes the lyric screen (htdemucs_gpu drum hits).
+    beatEffects: [
+        {
+            id: BEAT_EFFECT_IDS.machiNeonPulse,
+            nameKey: 'options.beatEffect_machiNeonPulse',
+            descKey: 'options.beatEffect_machiNeonPulseDesc',
+            source: 'beats',
+        },
+        {
+            id: BEAT_EFFECT_IDS.machiDrumRipple,
+            nameKey: 'options.beatEffect_machiDrumRipple',
+            descKey: 'options.beatEffect_machiDrumRippleDesc',
+            source: 'drums',
+        },
+        {
+            id: BEAT_EFFECT_IDS.machiScreenFlash,
+            nameKey: 'options.beatEffect_machiScreenFlash',
+            descKey: 'options.beatEffect_machiScreenFlashDesc',
+            source: 'drums',
+        },
+    ],
     // Deliberately unkeyed on the seed: the runtime takes a track change in place (pixiRuntimeHost.ts).
     render: props => <VisualizerMachi {...props} machiTuning={machiTuning.read(props.visualizerTunings)} />,
     renderSettingsPanel: props => <MachiSettingsPanel {...props} />,

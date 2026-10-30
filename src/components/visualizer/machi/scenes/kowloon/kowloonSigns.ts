@@ -4,6 +4,7 @@ import type { Line } from '../../../../../types';
 import { adjustLightnessForContrast } from '../../../../../utils/themeColorMath';
 import { createVisualizerRng } from '../../../visualizerSeedHash';
 import { prepareWordColorMatchers } from '../../../wordColoring';
+import type { MachiBeatFrame } from '../../engine/beatFx';
 import { resolveMachiFlicker, type MachiBoardTarget } from '../../engine/director';
 import { MachiLedStrip } from '../../engine/ledStrip';
 import { MachiLyricScreen } from '../../engine/lyricScreen';
@@ -40,6 +41,7 @@ export interface KowloonSignFrame {
     /** 人造光的亮度（白天弱）与白天程度（全息被日光冲淡）。 */
     artificial: number;
     daylight: number;
+    beat: MachiBeatFrame;
 }
 
 /** 店名：竖招牌与横招牌各一池，有的带一行英文小字。 */
@@ -288,7 +290,8 @@ export class KowloonSigns {
         }
         this.ticker.update({ delta: frame.delta, staticMode: frame.staticMode, speed: 0.8 + 0.4 * chorus, audio: frame.audio });
         // 霓虹：白天也亮着，只是被日光压下去；两组坏灯管时不时闪一阵，偶尔整个灭掉。
-        const neon = Math.pow(frame.artificial, 1.4) * (1 + 0.1 * chorus);
+        // 霓虹随拍（智能动感模式）：招牌每拍亮一下（坏灯管灭着的时候照样灭着）。
+        const neon = Math.pow(frame.artificial, 1.4) * (1 + 0.1 * chorus) * frame.beat.neon;
         const steady = neon * (0.93 + 0.07 * frame.flicker);
         const broken = (salt: string, offset: number) => {
             if (frame.staticMode) return neon;

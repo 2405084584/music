@@ -256,8 +256,11 @@ class KowloonScene implements MachiScene {
         const lampFlicker = staticMode ? 1 : resolveMachiFlicker(ambientTime + 4.2, `${frame.seed}:lamp`, 0.45);
         const tubeFlicker = staticMode ? 1 : resolveMachiFlicker(ambientTime + 0.6, `${frame.seed}:tube`, 2.2);
         const lamp = look.streetLamps * (0.75 + 0.25 * lampFlicker);
-        const artificial = look.artificial;
-        const neon = (0.25 + 0.75 * night) * (0.85 + 0.15 * frame.flicker);
+        // 霓虹随拍（智能动感模式）：店里的灯（连同它投在地上的光斑）、亮窗跟暖色那一路，霓虹灯带与招牌跟霓虹那一路；
+        // 地面干时光斑跟鼓点跳（城寨的环境光按光斑的亮度走，也跟着跳）。
+        const { beat } = frame;
+        const artificial = look.artificial * beat.warm;
+        const neon = (0.25 + 0.75 * night) * (0.85 + 0.15 * frame.flicker) * beat.neon;
         this.lights.setLevels({
             bar: artificial * (1 + 0.1 * chorus),
             screen: (1 - 0.8 * daylight) * (1 + 0.2 * chorus),
@@ -265,7 +268,7 @@ class KowloonScene implements MachiScene {
             holo: 1 - 0.85 * daylight,
             stall: 0.3 + 0.7 * look.streetLamps,
             lamp,
-            pools: 1 - 0.85 * daylight,
+            pools: (1 - 0.85 * daylight) * (1 + beat.thump),
         });
         const materials = this.context.materials;
         materials.setGlowLevel('barBacklight', artificial * (1 + 0.15 * chorus));
@@ -285,7 +288,7 @@ class KowloonScene implements MachiScene {
         materials.setGlowLevel('vending', artificial);
         materials.setGlowLevel('holoLens', 0.4 + 0.6 * night);
         // 亮着的窗：白天只是一点点亮。
-        this.windows.material.color.setScalar(0.28 + 0.6 * smoothNight(daylight));
+        this.windows.material.color.setScalar((0.28 + 0.6 * smoothNight(daylight)) * beat.warm);
         this.signs.update({
             songTime,
             ambientTime,
@@ -294,8 +297,9 @@ class KowloonScene implements MachiScene {
             chorus,
             audio: frame.audio,
             flicker: frame.flicker,
-            artificial,
+            artificial: look.artificial,
             daylight,
+            beat,
         });
         this.steam.update(ambientTime, frame.atmosphere.wind);
         this.lightCones.update(ambientTime, lamp * (1 - 0.6 * daylight));

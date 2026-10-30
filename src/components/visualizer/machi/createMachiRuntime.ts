@@ -1,8 +1,29 @@
 import * as THREE from 'three';
 import type { MotionValue } from 'framer-motion';
 import type { AudioBands, Line, Theme } from '../../../types';
+import { getDrumHits, type DrumHits } from '../../../services/analysis/drumHits';
+import { BEAT_EFFECT_IDS } from '../../../services/beatFx/beatEffects';
+import {
+    getBeatEffectStrength,
+    getBeatFxHeard,
+    getBeatFxLastBeat,
+    getBeatFxLastDownbeat,
+    isBeatFxReady,
+} from '../../../services/beatFx/beatFxLive';
 import { resolveLucideIconNames } from '../../../services/lucideIconResolver';
+import { beatImpact, downbeatImpact } from '../../../stores/motionSignals';
 import { resolveThemeFontStack, resolveThemeFontWeight } from '../../../utils/fontStacks';
+import {
+    latestMachiBeat,
+    MACHI_BEAT,
+    MACHI_BEAT_REST,
+    machiDrumHitsAt,
+    machiRippleWetness,
+    resolveMachiDrumRipples,
+    resolveMachiNeonPulse,
+    resolveMachiScreenFlash,
+    type MachiBeatFrame,
+} from './engine/beatFx';
 import { MachiCamera } from './engine/camera';
 import { MachiClock } from './engine/clock';
 import {
@@ -51,6 +72,7 @@ import type { MachiCameraView, MachiQuality, MachiSceneId, MachiTuning } from '.
 // 管自己的几何、灯、招牌和会动的东西。换场景只拆旧场景、建新场景，上下文和后处理留着。
 // 自己的 requestAnimationFrame 循环：暂停时只在镜头还在动、颜色还在插值、或外面要求补一帧时出帧，其余时间不跑。
 // 每帧的时间只从 currentTime（歌词）和 MachiClock（氛围）读，不进 React。
+// 智能动感模式（engine/beatFx.ts）：每帧按节拍时钟与鼓点算出霓虹、涟漪、闪拍的量，涟漪交给地面，其余随场景帧交给场景。
 
 export interface MachiSongContext {
     seed: string | number;
@@ -132,6 +154,8 @@ interface MachiDebugHook {
     /** 改设置（场景、时间、天气），环境直接跳到目标（不渐变），同步画一帧。 */
     setTuning: (patch: Partial<MachiTuning>, transition?: boolean) => void;
     environment: () => MachiEnvironmentState;
+    /** 智能动感模式的鼓点改用这一份（null 回到听到的这首歌的鼓点）：探针里没有分离，拿它看涟漪与闪拍。 */
+    setDrumHits: (hits: DrumHits | null) => void;
     stats: () => Record<string, number | string>;
     runtime: MachiRuntime;
 }
@@ -171,6 +195,11 @@ export class MachiRuntime {
     private readonly scratchColor = new THREE.Color();
     private readonly scratchColorB = new THREE.Color();
     private lightningTimes: number[] = [];
+    /** 智能动感模式这一帧的量（每帧就地改写）与鼓点涟漪的几圈。 */
+    private readonly beat: MachiBeatFrame = { ...MACHI_BEAT_REST };
+    private readonly kickRings = new Float32Array(MACHI_BEAT.ripple.max * 2);
+    /** 调试钩子给的鼓点（setDrumHits）。 */
+    private debugDrumHits: DrumHits | null = null;
     /** 自动降级压下去了几格（改了画质设置就归零）。 */
     private degrade = 0;
     private renderQuality: MachiRenderQuality;
@@ -611,6 +640,7 @@ export class MachiRuntime {
     /** 按歌曲时间决定牌面、副歌、闪电；按氛围时钟决定闪烁；音频包络平滑；场景推一步。 */
     private direct() {
         const songTime = this.options.currentTime.get();
+        const beat = this.stepBeat(songTime);
         const lines = this.song.lines;
         const target: MachiBoardTarget = this.showText ? resolveMachiBoardTarget(lines, songTime) : { kind: 'card' };
         const targetChanged = !sameBoardTarget(this.boardTarget, target);
@@ -644,7 +674,7 @@ export class MachiRuntime {
         // 闪电只在下雨时有。
         const lightning = this.staticMode || environment.rain < 0.5 ? 0 : resolveMachiLightning(this.lightningTimes, songTime) * environment.rain;
         this.skyLights.update({ daylight: environment.daylight, sunIntensity: look.sunIntensity, hemiIntensity: look.hemiIntensity, flash: lightning });
-        this.post.setGlow(look.bloom, look.streaks);
+        this.post.setGlow(look.bloom * beat.bloom, look.streaks);
         const atmosphere = this.atmosphere;
         atmosphere.lightning = lightning;
         atmosphere.time = this.clock.elapsed;
@@ -685,7 +715,38 @@ export class MachiRuntime {
             look,
             pixelsPerUnit,
             atmosphere,
+            beat,
         });
+    }
+
+    /**
+     * 智能动感模式：霓虹随拍读节拍时钟的包络（时钟已经乘好它的强度）；鼓点效果读听到的这首歌的鼓点，涟漪交给地面。
+     * 静态模式、暂停（停在一下闪拍中间的那帧不留着）、效果关着、拍点 / 鼓点还没有时都是常态值，
+     * 画面和关掉时一样。
+     */
+    private stepBeat(songTime: number): MachiBeatFrame {
+        const beat = Object.assign(this.beat, MACHI_BEAT_REST);
+        const idle = this.clock.paused;
+        const neonStrength = idle ? 0 : getBeatEffectStrength(BEAT_EFFECT_IDS.machiNeonPulse);
+        if (neonStrength > 0 && isBeatFxReady()) {
+            const tone = latestMachiBeat(getBeatFxLastBeat(), getBeatFxLastDownbeat())?.tone;
+            resolveMachiNeonPulse(beatImpact.get(), downbeatImpact.get(), tone, beat);
+        }
+        const rippleStrength = idle ? 0 : getBeatEffectStrength(BEAT_EFFECT_IDS.machiDrumRipple);
+        const flashStrength = idle ? 0 : getBeatEffectStrength(BEAT_EFFECT_IDS.machiScreenFlash);
+        let hits: DrumHits | null = null;
+        let time = songTime;
+        if (rippleStrength > 0 || flashStrength > 0) {
+            const heard = getBeatFxHeard();
+            time = heard.time ?? songTime;
+            hits = machiDrumHitsAt(this.debugDrumHits ?? getDrumHits(heard.key), time);
+        }
+        // 光斑的一跳只在干的地面上（湿的地面上是涟漪）。
+        beat.thump = resolveMachiDrumRipples(hits, time, rippleStrength, this.kickRings) * (1 - machiRippleWetness(this.environment.wetness));
+        resolveMachiScreenFlash(hits, time, flashStrength, beat);
+        const focus = this.stage.focusPoint;
+        this.ground.setKicks(focus.x, focus.z, this.kickRings);
+        return beat;
     }
 
     /** 主题 / 歌换了：按目标调色板、字体、图标重画招牌。 */
@@ -814,6 +875,10 @@ export class MachiRuntime {
                 this.renderFrame(performance.now());
             },
             environment: () => ({ ...this.environment }),
+            setDrumHits: hits => {
+                this.debugDrumHits = hits;
+                this.renderFrame(performance.now());
+            },
             stats: () => {
                 const average = this.frameTimes.length ? this.frameTimes.reduce((sum, value) => sum + value, 0) / this.frameTimes.length : 0;
                 return {

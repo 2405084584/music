@@ -9,6 +9,7 @@ import {
     type MachiBoardLayout,
     type MachiMeasure,
 } from './boardLayout';
+import type { MachiBeatFrame } from './beatFx';
 import type { MachiBoardTarget } from './director';
 import type { MachiColorBlend, MachiMaterials } from './materials';
 import type { MachiPalette } from './palette';
@@ -19,6 +20,7 @@ import { createCanvas, MACHI_REFERENCE_PX, paintMachiBoard, type MachiFont } fro
 // 牌面贴图是一个小池子（当前、下一行预先画好、换行时的旧图），每张上半是未唱的字、下半是唱到的字，着色器按点亮位置
 // 在两者之间切。着色器做成户外 LED 屏：像素格与 RGB 子像素条（格子太小时淡掉防摩尔纹）、点亮边界对齐像素格、
 // 慢刷新带、面板玻璃反光；换行时信号切换（横带错位、色散、雪花点）。最亮的通道压到 bloom 门槛附近，字不被晕开。
+// 智能动感模式的大屏闪拍（engine/beatFx.ts）：军鼓打下时整块闪亮一下（这时放过 bloom 门槛），自上而下扫过一道错位的横纹。
 
 export interface MachiLyricScreenContent {
     palette: MachiPalette;
@@ -37,6 +39,8 @@ export interface MachiLyricScreenFrame {
     staticMode: boolean;
     chorus: number;
     audio: number;
+    /** 智能动感模式这一帧的量：屏幕只读闪拍那两项。 */
+    beat: Pick<MachiBeatFrame, 'flash' | 'scan'>;
 }
 
 /** 字面贴图的宽度（每半张）：高度按字面宽高比取。 */
@@ -73,6 +77,8 @@ uniform float uTime;
 uniform float uGlitch;
 uniform float uPeak;
 uniform vec3 uSheen;
+uniform float uFlash;
+uniform float uScan;
 varying vec2 vUv;
 varying vec3 vViewNormal;
 float bHash(float n) { return fract(sin(n * 127.1) * 43758.5453); }
@@ -81,6 +87,10 @@ void main() {
     vec2 uv = vUv;
     float tear = bHash(floor(vUv.y * 22.0) + floor(uTime * 24.0) * 7.0);
     uv.x += (tear - 0.5) * 0.08 * uGlitch * step(0.62, tear);
+    // 闪拍的横纹：自上而下扫过的一道亮带，带里一行行错开一点。
+    float scanOffset = 1.0 - vUv.y - uScan;
+    float scanBand = step(0.0, uScan) * exp(-scanOffset * scanOffset * 260.0);
+    uv.x += (bHash(floor(vUv.y * 70.0) + floor(uTime * 60.0) * 3.0) - 0.5) * 0.03 * scanBand;
     // 像素格：贴图按原分辨率取（字不糊），点亮的边界对齐到格；格子小到约 2.5 个屏幕像素以下就把网格淡掉，免得出摩尔纹。
     vec2 cellUv = vUv * uCells;
     vec2 perPixel = fwidth(cellUv);
@@ -110,9 +120,11 @@ void main() {
     color *= (1.0 + 0.045 * exp(-pow((roll - 0.5) * 9.0, 2.0))) * (1.0 - 0.3 * uGlitch);
     color += (bHash(dot(floor(cellUv), vec2(1.0, 157.0)) + floor(uTime * 30.0)) - 0.5) * 0.12 * uGlitch;
     color = max(color * uBright, 0.0);
+    // 闪拍：整块提亮、底色也亮起来，横纹再亮一道；这一下放过 bloom 门槛。
+    color = color * (1.0 + 1.2 * uFlash) + uBase * 0.9 * uFlash + scanBand * 0.4;
     // 最亮的通道压到 uPeak（保色相）：字清楚，不被 bloom 晕开。
     float peak = max(max(color.r, color.g), color.b);
-    color *= min(1.0, uPeak / max(peak, 1e-4));
+    color *= min(1.0, (uPeak + 0.8 * uFlash + 0.4 * scanBand) / max(peak, 1e-4));
     // 面板玻璃：一点天光反射，侧着看更明显，再加一道斜的柔光。
     float fresnel = pow(1.0 - clamp(vViewNormal.z, 0.0, 1.0), 3.0);
     float glare = smoothstep(0.22, 0.0, abs(vUv.x * 0.7 + vUv.y * 0.9 - 1.05));
@@ -172,6 +184,8 @@ export class MachiLyricScreen {
                 uGlitch: { value: 0 },
                 uPeak: { value: PEAK.dark },
                 uSheen: { value: new THREE.Color() },
+                uFlash: { value: 0 },
+                uScan: { value: -1 },
             },
         }));
         this.material.name = 'machi:lyricScreen';
@@ -300,6 +314,8 @@ export class MachiLyricScreen {
         uniforms.uGlitch!.value = glitch;
         uniforms.uTime!.value = frame.ambientTime;
         (uniforms.uSheen!.value as THREE.Color).copy(this.blend.get('moon')).multiplyScalar(0.35);
+        uniforms.uFlash!.value = frame.beat.flash;
+        uniforms.uScan!.value = frame.beat.scan;
     }
 
     /** 副歌的平滑权重（招牌跟着它加亮、不闪）。 */

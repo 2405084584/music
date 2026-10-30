@@ -293,18 +293,21 @@ class StationScene implements MachiScene {
         const flicker = staticMode ? 1 : resolveMachiFlicker(ambientTime + 1.7, `${frame.seed}:canopy`, 0.4);
         const lampFlicker = staticMode ? 1 : resolveMachiFlicker(ambientTime + 4.2, `${frame.seed}:lamp`, 0.45);
         const lamp = look.streetLamps * (0.75 + 0.25 * lampFlicker);
-        const canopyLevel = (0.85 + 0.15 * flicker) * (1 + 0.08 * chorus) * look.artificial;
+        // 霓虹随拍（智能动感模式）：罩棚的灯（连同它投在地上的光斑）跟暖色那一路，旅馆霓虹跟霓虹那一路；地面干时光斑跟鼓点跳。
+        const { beat } = frame;
+        const canopyLevel = (0.85 + 0.15 * flicker) * (1 + 0.08 * chorus) * look.artificial * beat.warm;
+        const motelNeon = look.artificial * (0.8 + 0.2 * frame.flicker) * beat.neon;
         this.lights.setLevels({
             canopy: canopyLevel,
             lamp,
-            neon: look.artificial * (0.8 + 0.2 * frame.flicker),
+            neon: motelNeon,
             screen: (1 - 0.8 * environment.daylight) * (1 + 0.2 * chorus),
-            pools: 1 - 0.85 * environment.daylight,
+            pools: (1 - 0.85 * environment.daylight) * (1 + beat.thump),
         });
         const materials = this.context.materials;
         materials.setGlowLevel('canopyLight', 0.4 + 0.6 * canopyLevel);
         materials.setGlowLevel('lampHead', 0.15 + 0.85 * look.streetLamps);
-        materials.setGlowLevel('motelNeon', look.artificial * (0.8 + 0.2 * frame.flicker));
+        materials.setGlowLevel('motelNeon', motelNeon);
         materials.setGlowLevel('marker', 0.5 + 0.5 * look.artificial);
         // 停着的车白天不开灯，夜里出租车的灯亮着（等客）。
         materials.setGlowLevel('carHead', 0.12 + 0.88 * (1 - environment.daylight));
@@ -332,6 +335,7 @@ class StationScene implements MachiScene {
             flicker: frame.flicker,
             artificial: look.artificial,
             lineIndex: frame.target.kind === 'line' ? frame.target.index : -1,
+            beat,
         });
     }
 

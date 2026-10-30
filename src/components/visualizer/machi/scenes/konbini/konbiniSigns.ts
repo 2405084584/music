@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Line, Theme } from '../../../../../types';
 import { prepareWordColorMatchers } from '../../../wordColoring';
 import type { MachiSongContext } from '../../createMachiRuntime';
+import type { MachiBeatFrame } from '../../engine/beatFx';
 import { resolveMachiTickerText, type MachiBoardTarget } from '../../engine/director';
 import { MachiLedStrip } from '../../engine/ledStrip';
 import { MachiLyricScreen } from '../../engine/lyricScreen';
@@ -51,6 +52,7 @@ export interface KonbiniSignFrame {
     chorus: number;
     audio: number;
     flicker: number;
+    beat: MachiBeatFrame;
 }
 
 const canvasTexture = (canvas: HTMLCanvasElement, anisotropy = 4) => {
@@ -246,10 +248,12 @@ export class KonbiniSigns {
         // 静态招牌：闪烁只落在店招与立柱灯箱上，副歌时不闪、更亮；霓虹随副歌脉动。
         const flicker = chorus > 0.5 ? 1 : frame.flicker;
         const lift = 1 + 0.08 * chorus + 0.05 * frame.audio;
-        this.setLevel(this.fascia, this.fascia.level * lift);
-        this.setLevel(this.pylon, this.pylon.level * flicker * lift);
+        // 霓虹随拍（智能动感模式）：霓虹每拍亮一下，店招、立柱灯箱只亮一点。
+        const { beat } = frame;
+        this.setLevel(this.fascia, this.fascia.level * lift * beat.lightbox);
+        this.setLevel(this.pylon, this.pylon.level * flicker * lift * beat.lightbox);
         const neonPulse = frame.staticMode ? 1 : 0.85 + 0.15 * Math.sin(frame.ambientTime * 2.2) + 0.4 * chorus;
-        this.setLevel(this.neon, this.neon.level * neonPulse);
+        this.setLevel(this.neon, this.neon.level * neonPulse * beat.neon);
     }
 
     private setLevel(sign: { material: THREE.Material }, level: number) {

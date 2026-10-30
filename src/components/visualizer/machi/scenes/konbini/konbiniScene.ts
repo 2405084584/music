@@ -285,9 +285,11 @@ class KonbiniScene implements MachiScene {
             this.doorOpenness = openness;
             this.context.invalidateShadows();
         }
-        const interiorLevel = (1 + 0.1 * chorus + 0.06 * this.doorOpenness) * look.artificial;
-        this.lights.setLevels({ interior: interiorLevel, street, pools: 1 - 0.85 * environment.daylight });
-        this.context.materials.setGlowLevel('neonRim', (0.75 + 0.25 * frame.flicker) * (1 + 0.4 * chorus) * look.artificial);
+        // 霓虹随拍（智能动感模式）：店里的灯（连同它投在地上的光斑）跟暖色那一路，霓虹边跟霓虹那一路；地面干时光斑跟鼓点跳。
+        const { beat } = frame;
+        const interiorLevel = (1 + 0.1 * chorus + 0.06 * this.doorOpenness) * look.artificial * beat.warm;
+        this.lights.setLevels({ interior: interiorLevel, street, pools: (1 - 0.85 * environment.daylight) * (1 + beat.thump) });
+        this.context.materials.setGlowLevel('neonRim', (0.75 + 0.25 * frame.flicker) * (1 + 0.4 * chorus) * look.artificial * beat.neon);
         this.context.materials.setGlowLevel('lampHead', 0.15 + 0.85 * look.streetLamps);
         // 会动的东西：车按氛围时钟，旗随风飘，白气、光柱慢慢流。静态模式下街上没有车，场景是一张定格的画。
         this.traffic.group.visible = !staticMode;
@@ -309,6 +311,7 @@ class KonbiniScene implements MachiScene {
             chorus,
             audio: frame.audio,
             flicker: frame.flicker,
+            beat,
         });
         // 风扇转、自动门滑开。
         this.fans.forEach((fan, index) => {
