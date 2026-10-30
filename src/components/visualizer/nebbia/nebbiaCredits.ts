@@ -13,18 +13,32 @@ const graphemes = (text: string): string[] => {
     return seg ? [...seg.segment(text)].map(s => s.segment) : [...text];
 };
 
-/** 一段文字做成一句：字间隔开一点时间（真正的书写节奏由场景排），空格分开的是一个个词。 */
-const creditLine = (text: string, t: number, credits: 'title' | 'artist'): NebbiaSourceLine => {
-    const chars: NebbiaChar[] = graphemes(text).map((ch, i) => ({ ch, t: t + i * 0.1, d: 0.5 }));
+/**
+ * 一段文字的词：按 Intl 分词（中日文曲名中间没有空格，只按空格切会只有一块，排版就没法分两行），
+ * 没有分词器时按空格切。返回每个词的字素下标。
+ */
+const wordsOf = (text: string, chars: string[]): number[][] => {
+    const starts: number[] = [];
+    let offset = 0;
+    for (const g of chars) { starts.push(offset); offset += g.length; }
     const words: number[][] = [];
-    let run: number[] = [];
-    chars.forEach((c, i) => {
-        if (c.ch.trim()) run.push(i);
-        else if (run.length) { words.push(run); run = []; }
-    });
-    if (run.length) words.push(run);
+    const seg = typeof Intl !== 'undefined' && 'Segmenter' in Intl ? new Intl.Segmenter(undefined, { granularity: 'word' }) : null;
+    const pieces = seg ? [...seg.segment(text)].map(p => ({ at: p.index, text: p.segment }))
+        : [...text.matchAll(/\S+/g)].map(m => ({ at: m.index ?? 0, text: m[0] }));
+    for (const p of pieces) {
+        if (!p.text.trim()) continue;
+        const run = starts.flatMap((u, i) => (u >= p.at && u < p.at + p.text.length && chars[i].trim() ? [i] : []));
+        if (run.length) words.push(run);
+    }
+    return words;
+};
+
+/** 一段文字做成一句：字间隔开一点时间（真正的书写节奏由场景排）。 */
+const creditLine = (text: string, t: number, credits: 'title' | 'artist'): NebbiaSourceLine => {
+    const gs = graphemes(text);
+    const chars: NebbiaChar[] = gs.map((ch, i) => ({ ch, t: t + i * 0.1, d: 0.5 }));
     const last = chars[chars.length - 1];
-    return { chars, words, t, end: last ? last.t + last.d : t, next: Infinity, credits };
+    return { chars, words: wordsOf(text, gs), t, end: last ? last.t + last.d : t, next: Infinity, credits };
 };
 
 /** 在整首歌词后面接上片尾两句（没有歌词或没有曲名时不加）。歌手写在曲名写完之后，由场景对齐。 */
