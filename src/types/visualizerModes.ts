@@ -18,6 +18,7 @@ export const BUILTIN_VISUALIZER_MODES = [
     'claddagh',
     'classic',
     'diorama',
+    'nebbia',
     'fume',
     'hanabi',
     'lumiere',

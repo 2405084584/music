@@ -33,6 +33,7 @@ const STYLES = [
     ['lumiere', '绘光', 'Pixi'],
     ['hanabi', '花火', 'Pixi'],
     ['machi', '町景', 'three.js'],
+    ['nebbia', '雾笺', 'WebGL2 + 2D 画布'],
     ['cadenza', 'Mindscape', 'DOM + 2D 画布'],
     ['partita', '云阶', 'DOM'],
     ['fume', 'Fume', 'DOM + 2D 画布'],

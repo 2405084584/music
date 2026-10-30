@@ -96,3 +96,6 @@ __pycache__/
 
 # Built by build/buildPythonRuntime.mjs - binary artifacts that live on the mirrors, not in git.
 dist-runtime/
+
+# 雾笺的笔顺数据（AnimCJK，Arphic Public License，能否分发未定）：本地生成，不进仓库
+public/nebbia-strokes.json
