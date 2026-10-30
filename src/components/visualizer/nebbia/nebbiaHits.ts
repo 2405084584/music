@@ -59,6 +59,13 @@ export const vocalEnvelopeEnergy = (env: VocalEnvelope): Float32Array => {
     return e;
 };
 
+/**
+ * 整首歌唱得多响，乘在人声轨的小雨点密度上：上面的逐帧能量只看前后几秒的起伏，一首从头喊到尾的和轻声的慢歌
+ * 平均下来雨一样大。按人声轨的 `top`（响的那一档）算：−17.4 dB（郑润泽《你》）为 1 倍，每响 8 dB 翻一倍，
+ * 夹在 0.5–3 倍（《凤舞九天》的 −3.8 dB 约 3 倍）。
+ */
+export const songLoudness = (top: number) => clamp(2 ** ((top + 17.4) / 8), 0.5, 3);
+
 /** 某时刻正在唱的那句（原型 activeRect：开唱前 0.3 秒到唱完后 1 秒）。 */
 const activeLine = (laid: LaidLine[], t: number) => laid.find(line => t >= line.t - 0.3 && t <= line.end + 1) ?? null;
 
@@ -85,6 +92,8 @@ export class NebbiaHits {
     private vocal: Float32Array | null = null;
     /** 人声轨从哪一格起有（包络的 `from`），之前的格子走频段。 */
     private vocalFrom = 0;
+    /** 整首的响度倍数（songLoudness），只乘人声轨的格子。 */
+    private loud = 1;
 
     constructor(private seed: number) {}
 
@@ -98,6 +107,7 @@ export class NebbiaHits {
         this.lastBucket = -1;
         this.vocal = env && env.fps === VOCAL_FPS ? vocalEnvelopeEnergy(env) : null;
         this.vocalFrom = this.vocal ? env?.from ?? 0 : 0;
+        this.loud = env && this.vocal ? songLoudness(env.top) : 1;
         const rnd = createVisualizerRng(mixVisualizerSeed(this.seed, 911));
         const k = Math.min(W, H) / 720;
         const add = (t: number, line: LaidLine | null) => {
@@ -145,7 +155,7 @@ export class NebbiaHits {
             const live = rateOf(energy);
             for (let b = this.lastBucket + 1; b <= bucket; b += 1) {
                 const rnd = createVisualizerRng(mixVisualizerSeed(this.seed + b, 0x5ad1));
-                if (rnd() >= (vocal && (b < 0 || b >= this.vocalFrom) ? rateOf(b >= 0 && b < vocal.length ? vocal[b] : 0) : live)) continue;
+                if (rnd() >= (vocal && (b < 0 || b >= this.vocalFrom) ? rateOf(b >= 0 && b < vocal.length ? vocal[b] : 0) * this.loud : live)) continue;
                 this.small.push({ t: (b + rnd()) * BUCKET, x: W * (0.03 + 0.94 * rnd()), y: H * (0.03 + 0.94 * rnd()), R: (2 + rnd() * 3.5) * k, big: false, sat: null, seed: rnd() * 100 });
             }
         }

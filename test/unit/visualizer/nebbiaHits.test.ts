@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NebbiaHits, vocalEnvelopeEnergy } from '@/components/visualizer/nebbia/nebbiaHits';
+import { NebbiaHits, songLoudness, vocalEnvelopeEnergy } from '@/components/visualizer/nebbia/nebbiaHits';
 import type { LaidLine } from '@/components/visualizer/nebbia/nebbiaScene';
 import { VOCAL_FPS, type VocalEnvelope } from '@/services/analysis/vocalEnvelope';
 
@@ -92,5 +92,12 @@ describe('nebbia rain on the vocal stem', () => {
         const env: VocalEnvelope = { fps: VOCAL_FPS, db, top: -12, onsets: new Uint32Array(0) };
         expect(Array.from(vocalEnvelopeEnergy(env))).toEqual(Array.from(reference(env)));
         expect(Array.from(vocalEnvelopeEnergy(envelope()))).toEqual(Array.from(reference(envelope())));
+    });
+
+    it('rains harder on a louder song: 1x at -17.4 dB, doubling every 8 dB, within 0.5-3x', () => {
+        expect(songLoudness(-17.4)).toBeCloseTo(1);
+        expect(songLoudness(-9.4)).toBeCloseTo(2);
+        expect(songLoudness(-3.8)).toBe(3);
+        expect(songLoudness(-40)).toBe(0.5);
     });
 });
