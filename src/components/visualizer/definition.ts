@@ -241,6 +241,13 @@ export interface VisualizerRegistryEntry {
      * screen reads it (beatClockTargets.ts).
      */
     beatEffects?: readonly BeatEffectDef[];
+    /*
+     * Work started at app start when this is the saved style, behind the first-screen splash, so the
+     * style's first mount does not wait for it (雾笺: nebbia/nebbiaShaderWarmup.ts compiles its shaders
+     * in the background). It must not block the main thread, and it should import its code lazily: every
+     * entry is loaded eagerly at start-up. Run by prewarmSavedVisualizer.ts.
+     */
+    prewarm?: () => void;
 }
 
 export interface FoliumTunable {

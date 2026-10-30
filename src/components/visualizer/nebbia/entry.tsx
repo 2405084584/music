@@ -72,6 +72,10 @@ export default defineVisualizer({
             ],
         },
     ],
+    // Saved as the style: its shaders compile in the background while the app starts (cold, about a second on D3D11).
+    prewarm: () => {
+        void import('./nebbiaShaderWarmup').then(module => module.warmNebbiaShaders());
+    },
     // Deliberately unkeyed on the seed: the runtime takes a track change in place (createNebbiaRuntime.ts).
     render: props => <VisualizerNebbia {...props} nebbiaTuning={nebbiaTuning.read(props.visualizerTunings)} />,
     renderSettingsPanel: props => <NebbiaSettingsPanel {...props} />,

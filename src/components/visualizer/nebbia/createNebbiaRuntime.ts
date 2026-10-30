@@ -23,7 +23,7 @@ import { NebbiaSceneClock } from './nebbiaSceneClock';
 // src/components/visualizer/nebbia/createNebbiaRuntime.ts
 // 雾笺的运行时：一块画布、一个 WebGL2 上下文，自己的 rAF 循环。React 外壳把歌、tuning、主题、暂停推进来，
 // 每帧的播放时间和人声能量只在循环里读，不进 React state。暂停时不跑循环，只在需要时补画一帧；
-// 静态模式照常跟着歌词写字，窗外按车速匀速走，但不颠簸、没有小雨点。
+// 静态模式照常跟着歌词写字，窗外按车速匀速走，但不颠簸、没有小雨点。着色器在后台编（nebbiaPrograms.ts），编好之前循环空转、不画。
 
 // 改了要重排整首的 tuning 项
 const LAYOUT_KEYS: (keyof NebbiaTuning)[] = ['appear', 'fade', 'layouts', 'credits', 'jitter', 'warp', 'hold', 'refog', 'writeSpeed', 'doodle'];
@@ -212,10 +212,25 @@ export class NebbiaRuntime {
         this.hits.buildBig(this.laid, this.words, this.W, this.H, this.vocalEnv);
     }
 
+    // 着色器编好了没有：没编好下一帧再问（暂停时也问，编好补画第一帧）；编不过就和上下文丢了一样，外壳退回只显示当前这句
+    private shadersReady(): boolean {
+        try {
+            if (this.gl.ready) return true;
+        } catch (error) {
+            console.warn('[Nebbia] shaders failed to build', error);
+            this.dead = true;
+            this.input.onFailed();
+            return false;
+        }
+        this.raf = requestAnimationFrame(this.frame);
+        return false;
+    }
+
     private frame = () => {
         this.raf = 0;
+        if (this.dead || this.gl.isContextLost || !this.shadersReady()) return;
         // 宿主还没尺寸（隐藏、0 大小）时不画，也不报首帧；有尺寸后 resize 会补一帧
-        if (this.dead || this.gl.isContextLost || !this.W || !this.H) return;
+        if (!this.W || !this.H) return;
         const now = performance.now() / 1000;
         const frozen = this.paused || this.still;
         const dt = this.clock.tick(now, this.paused);
