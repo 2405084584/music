@@ -19,10 +19,14 @@ export const warmNebbiaShaders = (): void => {
     canvas.width = canvas.height = 1;
     // 上下文参数和运行时（nebbiaGl.ts）一样
     const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: false });
-    if (!gl) return;
+    if (!gl) {
+        console.info('[Nebbia] shader warm-up skipped: no WebGL2');
+        return;
+    }
     // 没有并行编译扩展时查结果会卡住主线程：那就不预热，留给运行时
     if (!gl.getExtension('KHR_parallel_shader_compile')) {
         gl.getExtension('WEBGL_lose_context')?.loseContext();
+        console.info('[Nebbia] shader warm-up skipped: no KHR_parallel_shader_compile');
         return;
     }
     const startedAt = performance.now();

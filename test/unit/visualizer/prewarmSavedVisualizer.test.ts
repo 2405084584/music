@@ -12,8 +12,8 @@ import { useVisualizerSettingsStore } from '@/stores/useVisualizerSettingsStore'
 import type { VisualizerMode } from '@/types';
 
 // test/unit/visualizer/prewarmSavedVisualizer.test.ts
-// Start-up prewarm: only the saved style's `prewarm` runs, and a saved mode that is not registered
-// (a mod not loaded yet) does not set off the fallback style's.
+// Start-up prewarm: only the saved style's `prewarm` runs, and a mode in the store that is not
+// registered (the registry falls back to the default style for it) does not set off the default's.
 
 const ADDED = 'mod:test:prewarm' as VisualizerMode;
 const savedMode = useVisualizerSettingsStore.getState().visualizerMode;

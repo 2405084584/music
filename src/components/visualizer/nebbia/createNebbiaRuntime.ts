@@ -61,6 +61,9 @@ export class NebbiaRuntime {
     private dead = false;
     /** 主题字体上次看时是否已加载：从没加载变成加载了，骨架才要重追。 */
     private fontReady = true;
+    /** 建运行时的时刻和着色器编好是否已记日志：看预热有没有命中缓存。 */
+    private readonly startedAt = performance.now();
+    private shadersLogged = false;
 
     constructor(private readonly input: NebbiaRuntimeInput, theme: Theme, tuning: NebbiaTuning) {
         this.theme = theme;
@@ -215,7 +218,13 @@ export class NebbiaRuntime {
     // 着色器编好了没有：没编好下一帧再问（暂停时也问，编好补画第一帧）；编不过就和上下文丢了一样，外壳退回只显示当前这句
     private shadersReady(): boolean {
         try {
-            if (this.gl.ready) return true;
+            if (this.gl.ready) {
+                if (!this.shadersLogged) {
+                    this.shadersLogged = true;
+                    console.info(`[Nebbia] shaders ready ${Math.round(performance.now() - this.startedAt)} ms after start`);
+                }
+                return true;
+            }
         } catch (error) {
             console.warn('[Nebbia] shaders failed to build', error);
             this.dead = true;
