@@ -2105,6 +2105,8 @@ export default {
     "bravaisSeamDirectionDesc": "Theo chiều dọc sẽ mở dải thông tin giữa hai cột khối, tách bức tường sang trái và phải. Theo chiều ngang sẽ mở giữa hai hàng khối, tách bức tường lên trên và xuống dưới với dải chạy ngang màn hình. Bảng danh sách, biểu mẫu và áp phích nghệ sĩ / album luôn giữ nguyên chiều dọc.",
     "bravaisSeamDirectionAuto": "Tự động",
     "bravaisSeamDirectionAutoDesc": "Hiển thị dạng hàng trên màn hình dọc (điện thoại cầm đứng, cửa sổ hẹp cao), dạng cột trên màn hình rộng; tự động chuyển đổi khi xoay màn hình.",
+    "bravaisSeamDirectionAutoReverse": "Tự động (đảo ngược)",
+    "bravaisSeamDirectionAutoReverseDesc": "Hiển thị dạng cột trên màn hình dọc, dạng hàng trên màn hình rộng (cửa sổ máy tính, điện thoại xoay ngang); tự động chuyển đổi khi xoay màn hình.",
     "bravaisSeamDirectionVertical": "Dọc",
     "bravaisSeamDirectionVerticalDesc": "Mở giữa hai cột khối; bức tường tách sang trái và phải.",
     "bravaisSeamDirectionHorizontal": "Ngang",

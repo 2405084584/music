@@ -2105,6 +2105,8 @@ export default {
     "bravaisSeamDirectionDesc": "Vertikal membuka strip info di antara dua kolom blok, membelah dinding kiri dan kanan. Horizontal membukanya di antara dua baris blok, membelah dinding atas dan bawah, dengan strip melintang layar. Panel daftar, formulir, dan poster artis / album selalu vertikal.",
     "bravaisSeamDirectionAuto": "Otomatis",
     "bravaisSeamDirectionAutoDesc": "Baris pada layar tinggi (ponsel tegak, jendela tinggi), kolom pada layar lebar; berganti saat layar diputar.",
+    "bravaisSeamDirectionAutoReverse": "Otomatis (terbalik)",
+    "bravaisSeamDirectionAutoReverseDesc": "Kolom pada layar tinggi, baris pada layar lebar (jendela desktop, ponsel miring); berganti saat layar diputar.",
     "bravaisSeamDirectionVertical": "Vertikal",
     "bravaisSeamDirectionVerticalDesc": "Terbuka di antara dua kolom blok; dinding terbelah kiri dan kanan.",
     "bravaisSeamDirectionHorizontal": "Horizontal",

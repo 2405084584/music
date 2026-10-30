@@ -2105,6 +2105,8 @@ export default {
     "bravaisSeamDirectionDesc": "竖向时信息条从块与块之间的竖缝裂开，墙左右分开；横向时从块行之间的横缝裂开，墙上下分开，信息条是一道横跨屏幕的横条。列表面板、表单与歌手 / 专辑海报始终是竖的。",
     "bravaisSeamDirectionAuto": "自动",
     "bravaisSeamDirectionAutoDesc": "竖着的屏幕（手机竖屏、竖长的窗口）用横条，横着的用竖缝；转屏时随之切换。",
+    "bravaisSeamDirectionAutoReverse": "自动（反向）",
+    "bravaisSeamDirectionAutoReverseDesc": "竖着的屏幕用竖缝，横着的屏幕（桌面窗口、手机横屏）用横条；转屏时随之切换。",
     "bravaisSeamDirectionVertical": "竖向",
     "bravaisSeamDirectionVerticalDesc": "从块与块之间的竖缝裂开，墙左右分开。",
     "bravaisSeamDirectionHorizontal": "横向",
