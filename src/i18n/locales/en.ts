@@ -3593,6 +3593,29 @@ export default {
         "description": "When signed in, your own private playlists now load their songs, with real paging. Self-hosted backends must run qq-music-api 3.1.2 or later; older backends fall back automatically, and a playlist that cannot be read now says it is not public instead of silently showing as empty."
       }
     },
+    "v0_7_24": {
+      "intro": "Welcome to 0.7.24, the Rainy Update—a major release. It brings two rainy-night lyric styles: Nebbia, which writes the lyrics on the fogged-up window of a bus, and Machi, a 3D miniature town. The bottom subtitles can now be laid out in one to three rows, and the desktop remote control window can expand to show the play queue.",
+      "nebbia": {
+        "title": "Nebbia",
+        "description": "New lyric style Nebbia: on a bus on a rainy night, a fingertip writes the lyrics on the fogged-up window. Chinese characters are written stroke by stroke in stroke order, each stroke wiping the fog clear onto the city outside; beads gather along the strokes and run down, the fog slowly creeps back, and two spotlights from the street follow the word being sung. Lines can be handwritten, fade in, or be written after a breath on the glass, and leave by fogging over or being wiped away by a finger; after the last line, the song title and artist are written on the glass. In Smart beat mode, Drizzle Ride makes raindrops hit the glass with the vocals and the bus jolt on the kick drum."
+      },
+      "machi": {
+        "title": "Machi",
+        "description": "New 3D lyric style Machi: miniature dioramas of a Japanese town whose signs carry the lyrics—the current line lights up word by word on an LED screen, the next line runs along an LED ticker, the song title sits on the shop signs, and the theme's colors and icons repaint the chain store. Scenes include a convenience store, a gas station and a walled-city bar; time of day (day, dusk, night) and weather (clear, rain, snow, fog) can each be left on Auto. In the rain the street turns glossy with long reflections, and thunder rolls at the start of each chorus. Drag to turn the view and keep a custom view for each scene; the camera drifts slowly, and aperture, focus and tilt-shift can be adjusted from the framing bar on the player page. In Smart beat mode the neon swells in waves on the beats, kicks ring ripples across the wet ground, and the lyric screen glows up on the snare."
+      },
+      "subtitleRows": {
+        "title": "Subtitle Rows",
+        "description": "The bottom subtitles can be one, two or three rows: a single row shows the current line, the translation or the romanization; with more rows, the first is the current line and each row after it can show the next line, the translation or the romanization. Set it in the lyric style window's subtitle settings—it no longer follows Subtitle Content, and your old setting converts to the matching layout. Between lines, the subtitles stay on the line just sung. Lattice's expanded song card now shows harmony subtitles too."
+      },
+      "remoteQueue": {
+        "title": "Remote Control Queue",
+        "description": "The desktop remote control window gains a queue button that expands it to show the play queue, centered on the current song and searchable; each song can be played, played next, moved to the end or removed. The window expands downward or upward depending on the room left on the screen, folds back a few seconds after the pointer leaves, and Esc clears the search first, then folds it."
+      },
+      "moreDetails": {
+        "title": "More Improvements",
+        "description": "Bravais's info strip direction gains Automatic (reversed), which picks the opposite orientation from Automatic. Current Output Device now also applies to playback that goes through Web Audio, instead of playing from the system default. When a Qishui VIP song falls back to its preview clip, the notice now says third-party players can't get the full VIP song for now; when Spotify won't provide audio, the notice now calls it an official restriction. Hovering the last row of the platform list in the login window no longer blanks the interface."
+      }
+    },
     "v0_7_23": {
       "intro": "Welcome to 0.7.23. The desktop app adds an mpv playback engine that sends local and Navidrome songs to your output device as they are; ReplayGain gains Smart balance, which adjusts by measured loudness; lyric filtering becomes a list of rules; Tempera gets a new drum effect, Sumizome Depth; and the interface is now available in Vietnamese.",
       "hifi": {

@@ -3593,6 +3593,29 @@ export default {
         "description": "Setelah masuk, playlist pribadi buatan Anda kini dapat memuat lagu dengan paging sungguhan. Backend yang di-host sendiri harus memakai qq-music-api 3.1.2 atau lebih baru; backend lama beralih otomatis, dan playlist yang tidak dapat dibaca kini menjelaskan bahwa playlist itu tidak publik, alih-alih tampil kosong tanpa keterangan."
       }
     },
+    "v0_7_24": {
+      "intro": "Selamat datang di 0.7.24, Rainy Update—sebuah pembaruan besar. Versi ini menghadirkan dua gaya lirik bertema malam hujan: Nebbia, yang menulis lirik di jendela bus yang berembun, dan Machi, sebuah kota miniatur 3D. Subtitle bawah kini bisa disusun dalam satu sampai tiga baris, dan jendela remote di desktop bisa dibentangkan untuk menampilkan antrean putar.",
+      "nebbia": {
+        "title": "Nebbia",
+        "description": "Gaya lirik baru Nebbia: di dalam bus pada malam hujan, ujung jari menuliskan lirik di jendela yang berembun. Aksara Tionghoa ditulis goresan demi goresan sesuai urutan goresannya, setiap goresan menghapus embun hingga tampak kota di luar; butiran air berkumpul di sepanjang goresan lalu mengalir turun, embun perlahan kembali, dan dua lampu sorot dari jalan mengikuti kata yang sedang dinyanyikan. Baris bisa ditulis tangan, muncul perlahan, atau ditulis setelah kaca dihembus napas, lalu hilang dengan berembun kembali atau diusap jari; setelah baris terakhir, judul lagu dan artisnya ditulis di kaca. Dalam mode ketukan pintar, Gerimis Perjalanan membuat tetes hujan mengenai kaca mengikuti vokal dan bus terguncang mengikuti kick drum."
+      },
+      "machi": {
+        "title": "Machi",
+        "description": "Gaya lirik 3D baru Machi: diorama miniatur sebuah kota Jepang yang papan-papannya membawa lirik—baris saat ini menyala kata demi kata di layar LED, baris berikutnya berjalan di ticker LED, judul lagu terpasang di papan toko, dan warna serta ikon tema mengecat ulang toko jaringannya. Adegannya ada toko serba ada, pom bensin, dan bar kota bertembok; waktu (siang, senja, malam) dan cuaca (cerah, hujan, salju, kabut) masing-masing bisa dibiarkan Otomatis. Saat hujan, jalan tampak basah mengilap dengan pantulan memanjang, dan guntur terdengar di awal setiap reff. Seret untuk memutar pandangan dan simpan pandangan khusus untuk setiap adegan; kamera bergerak perlahan, dan bukaan, fokus, serta tilt-shift bisa diatur dari bilah pembingkaian di halaman pemutar. Dalam mode ketukan pintar, neon berpendar bergelombang mengikuti ketukan, kick memancarkan riak di atas tanah basah, dan layar lirik menyala perlahan pada snare."
+      },
+      "subtitleRows": {
+        "title": "Baris Subtitle",
+        "description": "Subtitle bawah bisa terdiri dari satu, dua, atau tiga baris: satu baris menampilkan baris saat ini, terjemahan, atau romanisasi; dengan lebih banyak baris, baris pertama adalah baris saat ini dan setiap baris setelahnya bisa menampilkan baris berikutnya, terjemahan, atau romanisasi. Atur di pengaturan subtitle pada jendela gaya lirik—tidak lagi mengikuti Konten Subtitle, dan pengaturan lama otomatis diubah ke tata letak yang sesuai. Di jeda antarbaris, subtitle tetap pada baris yang baru dinyanyikan. Kartu lagu Lattice yang dibentangkan kini juga menampilkan subtitle harmoni."
+      },
+      "remoteQueue": {
+        "title": "Antrean di Jendela Remote",
+        "description": "Jendela remote di desktop mendapat tombol antrean yang membentangkannya untuk menampilkan antrean putar, dengan lagu saat ini di tengah dan bisa dicari; setiap lagu bisa diputar, diputar berikutnya, dipindah ke akhir, atau dihapus. Jendela membentang ke bawah atau ke atas sesuai ruang yang tersisa di layar, menutup kembali beberapa detik setelah penunjuk pergi, dan Esc mengosongkan pencarian dulu, lalu menutupnya."
+      },
+      "moreDetails": {
+        "title": "Peningkatan Lainnya",
+        "description": "Arah strip info Bravais mendapat Otomatis (terbalik), yang memilih orientasi kebalikan dari Otomatis. Perangkat Output Saat Ini kini juga berlaku untuk pemutaran yang melalui Web Audio, tidak lagi berbunyi dari perangkat bawaan sistem. Saat lagu VIP Qishui beralih ke cuplikan pratinjau, pemberitahuannya kini menyebut pemutar pihak ketiga untuk sementara tidak bisa mendapatkan lagu VIP lengkap; saat Spotify tidak memberikan audio, pemberitahuannya kini menyebutnya batasan resmi. Mengarahkan penunjuk ke baris terakhir daftar platform di jendela login tidak lagi membuat antarmuka kosong."
+      }
+    },
     "v0_7_23": {
       "intro": "Selamat datang di 0.7.23. Aplikasi desktop menambahkan mesin pemutaran mpv yang mengirim lagu lokal dan Navidrome ke perangkat output apa adanya; ReplayGain mendapat mode Pintar yang menyesuaikan berdasarkan kenyaringan terukur; filter lirik kini berupa daftar aturan; Tempera mendapat efek drum baru, Kedalaman Tinta; dan antarmuka kini tersedia dalam bahasa Vietnam.",
       "hifi": {
