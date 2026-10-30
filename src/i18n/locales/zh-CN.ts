@@ -1439,7 +1439,7 @@ export default {
     "noteSignIn": "请重新登录",
     "noteUnknown": "未知错误",
     "accountRefused": "此{{provider}}账号无法播放",
-    "noteAccountRefused": "平台限制 2024 年底后注册的账号在第三方播放器中播放",
+    "noteAccountRefused": "官方限制，无法获取音频",
     "noteMaybeSignIn": "登录后或许可以播放",
     "noteMaybeSubscription": "可能需要会员才能播放",
     "noteMaybeRegion": "可能受地区限制",

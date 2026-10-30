@@ -1439,7 +1439,7 @@ export default {
     "noteSignIn": "Masuk lagi",
     "noteUnknown": "Kesalahan tidak diketahui",
     "accountRefused": "Akun {{provider}} ini tidak dapat memutar di sini",
-    "noteAccountRefused": "Platform memblokir akun yang dibuat sejak akhir 2024 untuk memutar di pemutar pihak ketiga",
+    "noteAccountRefused": "Audio tidak tersedia karena pembatasan resmi",
     "noteMaybeSignIn": "Mungkin bisa diputar setelah masuk",
     "noteMaybeSubscription": "Mungkin perlu keanggotaan untuk memutar",
     "noteMaybeRegion": "Mungkin dibatasi di wilayah Anda",
