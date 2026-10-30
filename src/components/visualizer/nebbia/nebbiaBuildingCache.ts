@@ -5,6 +5,7 @@ import { makeTex, type Tex } from './nebbiaGlUtils';
 // （主画面清晰的 0.0012，雾的 0.03、0.09）各存一张横向环形的纹理（预乘颜色），车往前开时每帧只补画新露出来的几列，
 // 主画面和雾的预渲染从缓存取，不再每个像素现算楼群。清晰那档存半分辨率（窗格边略软），约 17 MB（2K 屏）。
 // 整张重画（刚开始、改尺寸、换配色、车速突变）一帧最多一张，还没画好的那档着色器照旧现算。
+// 补画用自己的程序（nebbiaShaders.ts 的 NEBBIA_BLD_FILL_FS）；取样的 uBldOn、uBldGeo 由 nebbiaGl.ts 设到用缓存的程序上。
 
 interface Level { b: number; y0: number; y1: number; fog: boolean }
 /** 三档模糊和各自要存的纵向范围（屏高比例）：上面高过最高的天线，下面过了楼底以后每行都一样（取样夹到边上）。 */
@@ -33,19 +34,30 @@ export const ringColumns = (a: number, b: number, span: number, w: number) => {
 };
 
 interface Cache { tex: Tex; fb: WebGLFramebuffer; level: number; layer: number; w: number; h: number; lo: number; hi: number; valid: boolean }
+type Locations = Record<string, WebGLUniformLocation | null>;
+/** 补画程序的 uniform。 */
+export const BLD_FILL_UNIFORMS = ['uFillB', 'uFillLayer', 'uFillX0', 'uFillGeo', 'uFillSize'];
+/** 用缓存的程序要设的：每档画好了没有、每档的 (y0, y1, 横向周期)。 */
+export interface NebbiaBuildingState { on: [number, number, number]; geo: number[] }
 
 export class NebbiaBuildingCache {
     private readonly caches: Cache[] = [];
     private span = 1;
     private aspect = 1;
 
-    constructor(private readonly gl: WebGL2RenderingContext, prog: WebGLProgram, firstUnit: number, private readonly U: Record<string, WebGLUniformLocation | null>) {
+    constructor(private readonly gl: WebGL2RenderingContext, firstUnit: number) {
         LEVELS.forEach((_, level) => SPEED.forEach((__, layer) => {
-            const i = level * 2 + layer;
-            const tex = makeTex(gl, prog, firstUnit + i, `uBld${i}`);
+            const tex = makeTex(gl, firstUnit + level * 2 + layer);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
             this.caches.push({ tex, fb: gl.createFramebuffer()!, level, layer, w: 1, h: 1, lo: 0, hi: 0, valid: false });
         }));
+    }
+
+    /** 用缓存的程序（编好后）：采样器 uBld0..5 指到各自的单元。 */
+    bindSamplers(prog: WebGLProgram) {
+        const { gl } = this;
+        gl.useProgram(prog);
+        this.caches.forEach((c, i) => gl.uniform1i(gl.getUniformLocation(prog, `uBld${i}`), c.tex.unit));
     }
 
     /** 配色变了：全部重画。 */
@@ -72,9 +84,12 @@ export class NebbiaBuildingCache {
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     }
 
-    /** 每帧在雾的预渲染之前调（主程序是当前程序、全屏四边形已绑好），t = uTime × uBus。补画缓存，设好取样用的 uniform。 */
-    update(t: number) {
-        const { gl, U } = this;
+    /**
+     * 每帧在雾的预渲染之前调（全屏四边形已绑好），t = uTime × uBus：用补画程序 `prog`（uniform 位置 `F`）补画缓存，
+     * 返回取样要的 uBldOn、uBldGeo。调完当前程序可能是补画程序。
+     */
+    update(t: number, prog: WebGLProgram, F: Locations): NebbiaBuildingState {
+        const { gl } = this;
         // 整张重画一帧只画一档（远近两层一起，一档要两层都画好才用得上）
         let fullLevel = -1, drawing = false;
         for (const c of this.caches) {
@@ -82,29 +97,28 @@ export class NebbiaBuildingCache {
             if (c.valid && lo >= c.lo && hi <= c.hi) continue;
             const ahead = c.valid && lo >= c.lo && hi - c.hi < this.span / 2;
             if (!ahead && fullLevel >= 0 && fullLevel !== c.level) { c.valid = false; continue; }
-            if (!drawing) { gl.uniform1i(U.uPass, 2); gl.enable(gl.SCISSOR_TEST); drawing = true; }
+            if (!drawing) { gl.useProgram(prog); gl.enable(gl.SCISSOR_TEST); drawing = true; }
             if (ahead) {
                 // 往前开了一点：只补新露出来的那几列，最旧的几列被覆盖掉
                 const next = hi + SLACK / 4;
-                this.fill(c, c.hi, next);
+                this.fill(c, c.hi, next, F);
                 c.hi = next; c.lo = next - this.span;
             } else {
                 // 第一次、尺寸或配色变了、车速突变跳得太远：整张重画
                 fullLevel = c.level;
                 c.lo = lo - SLACK / 4; c.hi = c.lo + this.span;
-                this.fill(c, c.lo, c.hi);
+                this.fill(c, c.lo, c.hi, F);
                 c.valid = true;
             }
         }
-        if (drawing) { gl.disable(gl.SCISSOR_TEST); gl.uniform1i(U.uPass, 1); gl.bindFramebuffer(gl.FRAMEBUFFER, null); }
+        if (drawing) { gl.disable(gl.SCISSOR_TEST); gl.bindFramebuffer(gl.FRAMEBUFFER, null); }
         const on = LEVELS.map((_, level) => (this.caches[level * 2].valid && this.caches[level * 2 + 1].valid ? 1 : 0));
-        gl.uniform3i(U.uBldOn, on[0], on[1], on[2]);
-        gl.uniform3fv(U.uBldGeo, LEVELS.flatMap(L => [L.y0, L.y1, this.span]));
+        return { on: [on[0], on[1], on[2]], geo: LEVELS.flatMap(L => [L.y0, L.y1, this.span]) };
     }
 
     // 补画世界横坐标 [a, b) 这一段
-    private fill(c: Cache, a: number, b: number) {
-        const { gl, U } = this;
+    private fill(c: Cache, a: number, b: number, U: Locations) {
+        const { gl } = this;
         const L = LEVELS[c.level];
         const { x0, runs } = ringColumns(a, b, this.span, c.w);
         if (!runs.length) return;
