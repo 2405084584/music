@@ -1,5 +1,6 @@
 import { FOG_DIV, NEBBIA_FIXED } from './nebbiaConstants';
 import { NebbiaFogGl } from './nebbiaFogGl';
+import { NebbiaNoiseTex } from './nebbiaNoiseTex';
 import raindropSpriteUrl from './nebbiaRaindrop.png';
 import { NEBBIA_FS, NEBBIA_SPRITE_FS, NEBBIA_SPRITE_VS, NEBBIA_VS } from './nebbiaShaders';
 import { link, makeTex, type NebbiaUniforms, type Tex } from './nebbiaGlUtils';
@@ -7,7 +8,7 @@ import { NebbiaBuildingCache } from './nebbiaBuildingCache';
 
 // src/components/visualizer/nebbia/nebbiaGl.ts
 // 雾笺的 WebGL2 部分：一个全屏着色器，四张玻璃上的纹理（擦痕遮罩、擦痕边 / 雨点的水珠、雾上的凝结水珠、哈气的白气），
-// 雾的预渲染（nebbiaFogGl.ts），楼群缓存（nebbiaBuildingCache.ts）。
+// 雾的预渲染（nebbiaFogGl.ts），楼群缓存（nebbiaBuildingCache.ts），静态噪声纹理（nebbiaNoiseTex.ts）。
 // 水珠精灵是 raindrop-fx 1.0.8（MIT，见 nebbiaRaindrop.LICENSE.txt）的 assets/img/raindrop.png。
 
 export class NebbiaGl {
@@ -22,6 +23,7 @@ export class NebbiaGl {
     private readonly mask: Tex; private readonly drop: Tex; private readonly field: Tex; private readonly sprite: Tex; private readonly breath: Tex;
     private readonly fog: NebbiaFogGl;
     private readonly bld: NebbiaBuildingCache;
+    private readonly noise: NebbiaNoiseTex;
     private W = 1; private H = 1;
     private spriteReady = false;
     private instData = new Float32Array(0);
@@ -35,7 +37,7 @@ export class NebbiaGl {
         this.prog = link(gl, NEBBIA_VS, NEBBIA_FS);
         this.sprog = link(gl, NEBBIA_SPRITE_VS, NEBBIA_SPRITE_FS);
         gl.useProgram(this.prog);
-        for (const n of ['uRes', 'uTime', 'uMist', 'uEdge', 'uRefract', 'uBus', 'uGlint', 'uNeon', 'uGlassShift', 'uSceneShift', 'uSky0', 'uSky1', 'uLa', 'uLb', 'uLc', 'uPass', 'uFogTex', 'uSpotSrc', 'uSpotSrc2', 'uSpotTgt', 'uSpotR', 'uSpotI', 'uBreathOn', 'uFogB', 'uBreathThick', 'uBldOn', 'uBldGeo', 'uFillB', 'uFillLayer', 'uFillX0', 'uFillGeo', 'uFillSize']) {
+        for (const n of ['uRes', 'uTime', 'uMist', 'uEdge', 'uRefract', 'uBus', 'uGlint', 'uNeon', 'uGlassShift', 'uSceneShift', 'uSky0', 'uSky1', 'uLa', 'uLb', 'uLc', 'uPass', 'uFogTex', 'uSpotSrc', 'uSpotSrc2', 'uSpotTgt', 'uSpotR', 'uSpotI', 'uBreathOn', 'uFogB', 'uBreathThick', 'uBldOn', 'uBldGeo', 'uFillB', 'uFillLayer', 'uFillX0', 'uFillGeo', 'uFillSize', 'uNoiseOn']) {
             this.U[n] = gl.getUniformLocation(this.prog, n);
         }
         this.quadVao = gl.createVertexArray()!;
@@ -52,6 +54,7 @@ export class NebbiaGl {
         this.fog = new NebbiaFogGl(gl, this.prog, 6, this.U);
         this.breath = makeTex(gl, this.prog, 8, 'uBreath');
         this.bld = new NebbiaBuildingCache(gl, this.prog, 9, this.U);
+        this.noise = new NebbiaNoiseTex(gl, this.prog, 15, this.U);
         gl.uniform1f(this.U.uBreathThick, NEBBIA_FIXED.breathThick);
         gl.uniform1i(this.U.uPass, 1);
 
@@ -120,6 +123,7 @@ export class NebbiaGl {
         }
         this.fog.resize(this.canvas.width, this.canvas.height);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        this.noise.resize(this.canvas.width, this.canvas.height);
         this.bld.resize(this.canvas.width, this.canvas.height, Math.max(1, Math.ceil(this.canvas.height / FOG_DIV)));
     }
 
@@ -170,6 +174,7 @@ export class NebbiaGl {
         gl.uniform1f(U.uSpotR, u.spotR); gl.uniform1f(U.uSpotI, u.spotI);
         gl.uniform1i(U.uBreathOn, breath ? 1 : 0);
         this.bld.update(u.time * u.bus);
+        this.noise.update();
         this.fog.draw();
         gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);

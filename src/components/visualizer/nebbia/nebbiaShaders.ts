@@ -2,7 +2,7 @@ import { NEBBIA_SCENE_GLSL } from './nebbiaSceneGlsl';
 
 // src/components/visualizer/nebbia/nebbiaShaders.ts
 // 雾笺的着色器：全屏四边形的主着色器（uPass 0 = 雾的预渲染，模糊半径 uFogB 的窗外写进一张浮点纹理（nebbiaFogGl.ts）；
-// 1 = 主画面：雾、擦痕、水珠折射合成，照搬 raindrop-fx 的 compose.glsl；2 = 补画楼群缓存），和画水珠精灵的实例化着色器。
+// 1 = 主画面：雾、擦痕、水珠折射合成，照搬 raindrop-fx 的 compose.glsl；2 = 补画楼群缓存；3 = 算静态噪声纹理），和画水珠精灵的实例化着色器。
 
 export const NEBBIA_VS = /* glsl */ `#version 300 es
 in vec2 aPos; out vec2 vUv;
@@ -23,9 +23,15 @@ uniform vec2 uSpotSrc, uSpotSrc2, uSpotTgt; uniform float uSpotR, uSpotI;
 // uPass 2 往缓存里补画一段：uFillX0 起的一个周期，uFillGeo 同 uBldGeo，uFillSize 缓存的像素尺寸
 uniform bvec3 uBldOn; uniform sampler2D uBld0, uBld1, uBld2, uBld3, uBld4, uBld5; uniform vec3 uBldGeo[3];
 uniform float uFillB, uFillLayer, uFillX0; uniform vec3 uFillGeo; uniform vec2 uFillSize;
+// 静态噪声纹理（nebbiaNoiseTex.ts）：按 px 取样，R 擦痕边细噪声、G 大块噪声、B 闪点；uNoiseOn 为假时现算
+uniform bool uNoiseOn; uniform sampler2D uNoise;
 in vec2 vUv; out vec4 outColor;
 ${NEBBIA_SCENE_GLSL}
+// 主画面里只跟像素位置有关的三个噪声（uPass 3 往纹理里算的也是它）
+vec3 staticNoise(vec2 px) { return vec3(vnoise(px / 6.0) * 0.6 + vnoise(px / 2.2) * 0.4, vnoise(px / 55.0 + 3.1), vnoise(px / 1.6)); }
 void main() {
+  // 纹理的第 j 行存 px.y = j + 0.5，主画面按 px / uRes 取样，正好落在格子中心
+  if (uPass == 3) { outColor = vec4(staticNoise(gl_FragCoord.xy), 1.0); return; }
   // 楼群缓存的一格像素对应的世界横坐标：落在 [uFillX0, uFillX0 + 周期) 里的那一个
   if (uPass == 2) {
     float span = uFillGeo.z;
@@ -48,8 +54,8 @@ void main() {
   vec2 q = vec2(sv.x * aspect, sv.y);
   float m = texture(uMask, gv).r;
   // 擦痕边缘：细噪声让边缘毛糙，大块噪声让重新起雾时一片片回来
-  float fine = vnoise(px / 6.0) * 0.6 + vnoise(px / 2.2) * 0.4;
-  float blotch = vnoise(px / 55.0 + 3.1);
+  vec3 nz = uNoiseOn ? texture(uNoise, px / uRes).rgb : staticNoise(px);
+  float fine = nz.r, blotch = nz.g;
   float th = 0.3 + (fine - 0.5) * 0.22 * uEdge + (blotch - 0.5) * 0.12;
   float clear = smoothstep(th - 0.05, th + 0.06, m);
   // 哈气：就是这一片的雾一下变密（更细密的一层水汽凝上来），不是另盖一层。边由大块噪声揉散成一卷卷的、
@@ -84,7 +90,7 @@ void main() {
   // 聚光灯照到玻璃上：雾里的小水滴把光散开，字周围一圈雾被照成强调色
   vec2 sd = q - uSpotTgt;
   fog += uLa * uSpotI * exp(-dot(sd, sd) / (uSpotR * uSpotR * 2.2)) * (0.18 + 0.4 * dens);
-  fog += smoothstep(0.78, 0.98, vnoise(px / 1.6)) * 0.05 * dens;
+  fog += smoothstep(0.78, 0.98, nz.b) * 0.05 * dens;
   // 水珠纹理：擦痕边 / 下淌的水珠 rd，雾上的凝结水珠 fd（擦开的地方没有）
   vec4 rd = texture(uDrop, gv);
   vec4 fd = texture(uField, gv) * (1.0 - clear);
